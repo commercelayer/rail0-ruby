@@ -1,0 +1,599 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RAIL0 API",
+    "version": "6.0.0",
+    "description": "REST API for the RAIL0 stablecoin payment protocol. Maps directly to the on-chain RAIL0 smart contract (version 6)."
+  },
+  "tags": [
+    {
+      "name": "payments",
+      "description": "Core payment lifecycle (authorize, charge, capture, void, release, refund)"
+    },
+    { "name": "tokens", "description": "Token allowlist queries" },
+    { "name": "utils", "description": "EIP-712 helpers, nonces, and contract metadata" }
+  ],
+  "paths": {
+    "/payments/{paymentId}": {
+      "get": {
+        "tags": ["payments"],
+        "summary": "Get payment state",
+        "description": "Returns the on-chain mutable state (capturableAmount, refundableAmount, exists) and config hash for a payment.",
+        "operationId": "getPayment",
+        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
+        "responses": {
+          "200": {
+            "description": "Payment found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaymentResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+
+    "/payments/{paymentId}/authorize": {
+      "post": {
+        "tags": ["payments"],
+        "summary": "Authorize",
+        "description": "Pull `amount` from the payer into escrow. The v/r/s fields are the EIP-3009 transferWithAuthorization signature signed by the payer.",
+        "operationId": "authorize",
+        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AuthorizeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": { "$ref": "#/components/responses/TransactionAccepted" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+
+    "/payments/{paymentId}/charge": {
+      "post": {
+        "tags": ["payments"],
+        "summary": "Charge (one-shot)",
+        "description": "Authorize and immediately capture in a single transaction — funds go directly to the payee. The v/r/s fields are the EIP-3009 transferWithAuthorization signature signed by the payer.",
+        "operationId": "charge",
+        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AuthorizeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": { "$ref": "#/components/responses/TransactionAccepted" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+
+    "/payments/{paymentId}/capture": {
+      "post": {
+        "tags": ["payments"],
+        "summary": "Capture",
+        "description": "Move escrowed funds to the payee. Caller must be the payee.",
+        "operationId": "capture",
+        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaymentWithAmountRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": { "$ref": "#/components/responses/TransactionAccepted" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+
+    "/payments/{paymentId}/void": {
+      "post": {
+        "tags": ["payments"],
+        "summary": "Void",
+        "description": "Cancel an authorization, returning all escrowed funds to the payer. Caller must be the payee.",
+        "operationId": "void",
+        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaymentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": { "$ref": "#/components/responses/TransactionAccepted" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+
+    "/payments/{paymentId}/release": {
+      "post": {
+        "tags": ["payments"],
+        "summary": "Release",
+        "description": "Return escrowed funds to the payer after authorizationExpiry has passed without a capture. Permissionless — anyone can call.",
+        "operationId": "release",
+        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaymentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": { "$ref": "#/components/responses/TransactionAccepted" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+
+    "/payments/{paymentId}/refund": {
+      "post": {
+        "tags": ["payments"],
+        "summary": "Refund",
+        "description": "Return a previously captured amount from the payee to the payer. Caller must be the payee. Must be called before refundExpiry.",
+        "operationId": "refund",
+        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaymentWithAmountRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": { "$ref": "#/components/responses/TransactionAccepted" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+
+    "/payments/{paymentId}/authorize-nonce": {
+      "get": {
+        "tags": ["utils"],
+        "summary": "Authorize nonce",
+        "description": "Returns the EIP-3009 nonce the payer must include in the transferWithAuthorization signature for an authorize call.",
+        "operationId": "authorizeNonce",
+        "parameters": [
+          { "$ref": "#/components/parameters/PaymentId" },
+          {
+            "name": "payer",
+            "in": "query",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/Address" },
+            "description": "Payer address"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Nonce",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["nonce"],
+                  "properties": {
+                    "nonce": { "$ref": "#/components/schemas/Bytes32" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/payments/{paymentId}/charge-nonce": {
+      "get": {
+        "tags": ["utils"],
+        "summary": "Charge nonce",
+        "description": "Returns the EIP-3009 nonce the payer must include in the transferWithAuthorization signature for a charge call.",
+        "operationId": "chargeNonce",
+        "parameters": [
+          { "$ref": "#/components/parameters/PaymentId" },
+          {
+            "name": "payer",
+            "in": "query",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/Address" },
+            "description": "Payer address"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Nonce",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["nonce"],
+                  "properties": {
+                    "nonce": { "$ref": "#/components/schemas/Bytes32" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/payments/hash": {
+      "post": {
+        "tags": ["utils"],
+        "summary": "Hash a Payment configuration",
+        "description": "Compute the canonical EIP-712 digest of a Payment struct. Useful to pre-compute the config hash before calling authorize or charge.",
+        "operationId": "hashPayment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Payment" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "EIP-712 digest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["hash"],
+                  "properties": {
+                    "hash": { "$ref": "#/components/schemas/Bytes32" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/tokens/{address}": {
+      "get": {
+        "tags": ["tokens"],
+        "summary": "Check accepted token",
+        "description": "Returns whether the given ERC-20 token address is in this deployment's immutable allowlist.",
+        "operationId": "isAcceptedToken",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/Address" },
+            "description": "ERC-20 token contract address"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["address", "accepted"],
+                  "properties": {
+                    "address": { "$ref": "#/components/schemas/Address" },
+                    "accepted": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/domain-separator": {
+      "get": {
+        "tags": ["utils"],
+        "summary": "EIP-712 domain separator",
+        "operationId": "domainSeparator",
+        "responses": {
+          "200": {
+            "description": "Domain separator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["domainSeparator"],
+                  "properties": {
+                    "domainSeparator": { "$ref": "#/components/schemas/Bytes32" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/version": {
+      "get": {
+        "tags": ["utils"],
+        "summary": "Contract version",
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "description": "Version number",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["version"],
+                  "properties": {
+                    "version": { "type": "integer", "example": 6 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "components": {
+    "parameters": {
+      "PaymentId": {
+        "name": "paymentId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Bytes32" },
+        "description": "Caller-supplied unique payment identifier (bytes32, hex-encoded)"
+      }
+    },
+
+    "schemas": {
+      "Address": {
+        "type": "string",
+        "pattern": "^0x[0-9a-fA-F]{40}$",
+        "example": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+      },
+
+      "Bytes32": {
+        "type": "string",
+        "pattern": "^0x[0-9a-fA-F]{64}$",
+        "example": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
+      },
+
+      "Uint256String": {
+        "description": "Unsigned 256-bit integer serialised as a decimal string to avoid JS precision loss.",
+        "type": "string",
+        "pattern": "^[0-9]+$",
+        "example": "1000000"
+      },
+
+      "Payment": {
+        "description": "Immutable payment configuration committed on the first authorize or charge call.",
+        "type": "object",
+        "required": [
+          "payer",
+          "payee",
+          "token",
+          "maxAmount",
+          "authorizationExpiry",
+          "refundExpiry",
+          "feeBps",
+          "feeReceiver"
+        ],
+        "properties": {
+          "payer": {
+            "allOf": [{ "$ref": "#/components/schemas/Address" }],
+            "description": "Buyer address. Signs the EIP-3009 authorization for authorize / charge."
+          },
+          "payee": {
+            "allOf": [{ "$ref": "#/components/schemas/Address" }],
+            "description": "Merchant address. Must call capture / void / refund."
+          },
+          "token": {
+            "allOf": [{ "$ref": "#/components/schemas/Address" }],
+            "description": "ERC-20 token address. Must be in this deployment's allowlist and support EIP-3009."
+          },
+          "maxAmount": {
+            "allOf": [{ "$ref": "#/components/schemas/Uint256String" }],
+            "description": "Upper bound on what can be authorized (fits in uint120 on-chain)."
+          },
+          "authorizationExpiry": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp after which capture is rejected and release opens."
+          },
+          "refundExpiry": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp after which refund is rejected."
+          },
+          "feeBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "Protocol fee in basis points (0 = no fee). When >0, feeReceiver must be non-zero."
+          },
+          "feeReceiver": {
+            "allOf": [{ "$ref": "#/components/schemas/Address" }],
+            "description": "Address that receives the protocol fee. Must be zero when feeBps is 0."
+          }
+        }
+      },
+
+      "PaymentRequest": {
+        "description": "Request body for operations that only need the Payment configuration (void, release).",
+        "type": "object",
+        "required": ["payment"],
+        "properties": {
+          "payment": { "$ref": "#/components/schemas/Payment" }
+        }
+      },
+
+      "PaymentWithAmountRequest": {
+        "description": "Request body for operations that need the Payment configuration and an amount (capture, refund).",
+        "type": "object",
+        "required": ["payment", "amount"],
+        "properties": {
+          "payment": { "$ref": "#/components/schemas/Payment" },
+          "amount": {
+            "allOf": [{ "$ref": "#/components/schemas/Uint256String" }],
+            "description": "Amount to process (must be > 0)."
+          }
+        }
+      },
+
+      "AuthorizeRequest": {
+        "description": "Request body for authorize and charge. The v/r/s fields are the EIP-3009 transferWithAuthorization signature signed by the payer.",
+        "type": "object",
+        "required": ["payment", "amount", "v", "r", "s"],
+        "properties": {
+          "payment": { "$ref": "#/components/schemas/Payment" },
+          "amount": {
+            "allOf": [{ "$ref": "#/components/schemas/Uint256String" }],
+            "description": "Amount to pull into escrow (must be > 0 and ≤ maxAmount)."
+          },
+          "v": {
+            "type": "integer",
+            "minimum": 27,
+            "maximum": 28,
+            "description": "Recovery identifier from the EIP-3009 signature."
+          },
+          "r": {
+            "allOf": [{ "$ref": "#/components/schemas/Bytes32" }],
+            "description": "r component of the EIP-3009 signature."
+          },
+          "s": {
+            "allOf": [{ "$ref": "#/components/schemas/Bytes32" }],
+            "description": "s component of the EIP-3009 signature."
+          }
+        }
+      },
+
+      "PaymentState": {
+        "description": "On-chain mutable state for a payment. Packed in one storage slot.",
+        "type": "object",
+        "required": ["exists", "capturableAmount", "refundableAmount"],
+        "properties": {
+          "exists": {
+            "type": "boolean",
+            "description": "True once a payment has been created via authorize or charge."
+          },
+          "capturableAmount": {
+            "allOf": [{ "$ref": "#/components/schemas/Uint256String" }],
+            "description": "Funds currently held in escrow, available for capture or release."
+          },
+          "refundableAmount": {
+            "allOf": [{ "$ref": "#/components/schemas/Uint256String" }],
+            "description": "Funds already disbursed to the payee and still eligible for refund."
+          }
+        }
+      },
+
+      "PaymentResponse": {
+        "type": "object",
+        "required": ["paymentId", "state", "configHash"],
+        "properties": {
+          "paymentId": { "$ref": "#/components/schemas/Bytes32" },
+          "state": { "$ref": "#/components/schemas/PaymentState" },
+          "configHash": {
+            "allOf": [{ "$ref": "#/components/schemas/Bytes32" }],
+            "description": "EIP-712 digest of the Payment configuration committed on creation."
+          }
+        }
+      },
+
+      "TransactionResponse": {
+        "description": "Returned for every write operation. The transaction may still be pending.",
+        "type": "object",
+        "required": ["transactionHash", "status"],
+        "properties": {
+          "transactionHash": { "$ref": "#/components/schemas/Bytes32" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "confirmed", "failed"]
+          }
+        }
+      },
+
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error", "message"],
+        "properties": {
+          "error": { "type": "string", "example": "PaymentNotFound" },
+          "message": { "type": "string", "example": "No payment exists for the given paymentId." }
+        }
+      }
+    },
+
+    "responses": {
+      "TransactionAccepted": {
+        "description": "Transaction submitted successfully.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/TransactionResponse" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Payment not found.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": "PaymentNotFound",
+              "message": "No payment exists for the given paymentId."
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Payment already exists.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": "PaymentAlreadyExists",
+              "message": "A payment with this paymentId has already been authorized or charged."
+            }
+          }
+        }
+      },
+      "UnprocessableEntity": {
+        "description": "Validation failed or contract reverted.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": "AuthorizationExpired",
+              "message": "The authorizationExpiry timestamp has passed."
+            }
+          }
+        }
+      }
+    }
+  }
+}
