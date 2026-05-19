@@ -5,82 +5,103 @@ module Rail0
         @http = http
       end
 
-      # Returns the current on-chain state and config hash for a payment.
+      # Create a payment intent. Returns the EIP-712 signingPayload for the payer to sign.
+      # @param params [Hash] CreatePaymentRequest fields: payment, amount, chainId, mode
+      # @return [Hash] CreatePaymentResponse: paymentId, configHash, payment, amount, chainId, rail0Contract, signingPayload
+      def create_payment(params)
+        @http.post("/payments", params)
+      end
+
+      # Submit the payer's EIP-712 signature (v, r, s).
       # @param payment_id [String] bytes32 payment identifier
-      # @return [Hash] with keys :paymentId, :state, :configHash
-      def get(payment_id)
-        @http.get("/payments/#{payment_id}")
+      # @param params [Hash] PayerSignatureRequest fields: v, r, s
+      # @return [Hash] PayerSignatureResponse: paymentId, status
+      def sign(payment_id, params)
+        @http.put("/payments/#{payment_id}/sign", params)
       end
 
-      # Pull amount from the payer into escrow using an EIP-3009 transferWithAuthorization signature.
+      # Relay the stored EIP-3009 signature to the RAIL0 authorize() function. Called by the payee.
       # @param payment_id [String]
-      # @param params [Hash] with keys :payment, :amount, :v, :r, :s
-      # @return [Hash] with keys :transactionHash, :status
-      def authorize(payment_id, params)
-        @http.post("/payments/#{payment_id}/authorize", params)
+      # @return [Hash] AuthorizePaymentResponse: paymentId, transactionHash, capturableAmount
+      def authorize(payment_id)
+        @http.post("/payments/#{payment_id}/authorize")
       end
 
-      # Authorize and immediately capture in a single transaction. Uses an EIP-3009 signature.
+      # Relay the stored EIP-3009 signature to the RAIL0 charge() function (one-shot). Called by the payee.
       # @param payment_id [String]
-      # @param params [Hash] with keys :payment, :amount, :v, :r, :s
-      # @return [Hash] with keys :transactionHash, :status
-      def charge(payment_id, params)
-        @http.post("/payments/#{payment_id}/charge", params)
+      # @return [Hash] ChargePaymentResponse: paymentId, transactionHash, chargedAmount, feeAmount, refundableAmount
+      def charge(payment_id)
+        @http.post("/payments/#{payment_id}/charge")
       end
 
-      # Capture escrowed funds. Caller must be the payee.
+      # Build the unsigned capture() transaction. Called by the payee.
       # @param payment_id [String]
-      # @param params [Hash] with keys :payment, :amount
-      # @return [Hash] with keys :transactionHash, :status
-      def capture(payment_id, params)
+      # @param params [Hash] CapturePaymentRequest fields: amount
+      # @return [Hash] PrepareTransactionResponse: unsignedTransaction, to, data, chainId, nonce, maxFeePerGas, maxPriorityFeePerGas, gasLimit
+      def prepare_capture(payment_id, params)
         @http.post("/payments/#{payment_id}/capture", params)
       end
 
-      # Cancel an authorization, returning escrowed funds to the payer. Caller must be the payee.
+      # Broadcast a signed capture transaction. Called by the payee.
       # @param payment_id [String]
-      # @param params [Hash] with key :payment
-      # @return [Hash] with keys :transactionHash, :status
-      def void(payment_id, params)
-        @http.post("/payments/#{payment_id}/void", params)
+      # @param params [Hash] SubmitTransactionRequest fields: signedTransaction
+      # @return [Hash] CapturePaymentResponse: paymentId, transactionHash, capturedAmount, capturableAmount, refundableAmount
+      def submit_capture(payment_id, params)
+        @http.post("/payments/#{payment_id}/capture/submit", params)
       end
 
-      # Return escrowed funds to the payer after authorizationExpiry. Permissionless.
+      # Build the unsigned void() transaction. Called by the payee.
       # @param payment_id [String]
-      # @param params [Hash] with key :payment
-      # @return [Hash] with keys :transactionHash, :status
-      def release(payment_id, params)
-        @http.post("/payments/#{payment_id}/release", params)
+      # @return [Hash] PrepareTransactionResponse
+      def prepare_void(payment_id)
+        @http.post("/payments/#{payment_id}/void")
       end
 
-      # Refund a previously captured amount from the payee to the payer. Caller must be the payee.
+      # Broadcast a signed void transaction. Called by the payee.
       # @param payment_id [String]
-      # @param params [Hash] with keys :payment, :amount
-      # @return [Hash] with keys :transactionHash, :status
-      def refund(payment_id, params)
+      # @param params [Hash] SubmitTransactionRequest fields: signedTransaction
+      # @return [Hash] VoidPaymentResponse: paymentId, transactionHash, releasedAmount
+      def submit_void(payment_id, params)
+        @http.post("/payments/#{payment_id}/void/submit", params)
+      end
+
+      # Release escrowed funds back to the payer after authorizationExpiry. Permissionless.
+      # @param payment_id [String]
+      # @return [Hash] ReleasePaymentResponse: paymentId, transactionHash, releasedAmount
+      def release(payment_id)
+        @http.post("/payments/#{payment_id}/release")
+      end
+
+      # Build the unsigned ERC-20 approve() transaction needed before a refund. Called by the payee.
+      # @param payment_id [String]
+      # @param params [Hash] ApproveRequest fields: amount
+      # @return [Hash] PrepareTransactionResponse
+      def prepare_approve(payment_id, params)
+        @http.post("/payments/#{payment_id}/approve", params)
+      end
+
+      # Broadcast a signed ERC-20 approve transaction. Called by the payee.
+      # @param payment_id [String]
+      # @param params [Hash] SubmitTransactionRequest fields: signedTransaction
+      # @return [Hash] ApproveResponse: transactionHash, token, spender, amount
+      def submit_approve(payment_id, params)
+        @http.post("/payments/#{payment_id}/approve/submit", params)
+      end
+
+      # Build the unsigned refund() transaction. Called by the payee.
+      # @param payment_id [String]
+      # @param params [Hash] RefundPaymentRequest fields: amount
+      # @return [Hash] PrepareTransactionResponse
+      def prepare_refund(payment_id, params)
         @http.post("/payments/#{payment_id}/refund", params)
       end
 
-      # Returns the EIP-3009 nonce the payer must use when signing an authorize call.
+      # Broadcast a signed refund transaction. Called by the payee.
       # @param payment_id [String]
-      # @param config_hash [String] EIP-712 digest of the Payment configuration (from payments.hash)
-      # @return [Hash] with key :nonce
-      def authorize_nonce(payment_id, config_hash)
-        @http.get("/payments/#{payment_id}/authorize-nonce?configHash=#{config_hash}")
-      end
-
-      # Returns the EIP-3009 nonce the payer must use when signing a charge call.
-      # @param payment_id [String]
-      # @param config_hash [String] EIP-712 digest of the Payment configuration (from payments.hash)
-      # @return [Hash] with key :nonce
-      def charge_nonce(payment_id, config_hash)
-        @http.get("/payments/#{payment_id}/charge-nonce?configHash=#{config_hash}")
-      end
-
-      # Compute the canonical EIP-712 digest of a Payment configuration.
-      # @param payment [Hash]
-      # @return [Hash] with key :hash
-      def hash(payment)
-        @http.post("/payments/hash", payment)
+      # @param params [Hash] SubmitTransactionRequest fields: signedTransaction
+      # @return [Hash] RefundPaymentResponse: paymentId, transactionHash, refundedAmount, refundableAmount
+      def submit_refund(payment_id, params)
+        @http.post("/payments/#{payment_id}/refund/submit", params)
       end
     end
   end
