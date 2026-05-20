@@ -172,14 +172,17 @@ module Rail0
 
     # Sign the EIP-3009 payload required by an authorize call.
     #
-    #   config_hash = client.payments.hash(payment)[:hash]
-    #   nonce = client.payments.authorize_nonce(payment_id, config_hash)[:nonce]
+    #   resp  = client.payments.create_payment(
+    #     payment: payment, amount: "50000000", chain_id: chain_id, mode: "authorize"
+    #   )
+    #   nonce = resp[:signingPayload][:message][:nonce]
     #   sig   = Rail0::Signing.sign_authorize(Rail0::Signing::SignPaymentParams.new(
     #     private_key: "0x...", payment: payment, amount: 50_000_000,
-    #     nonce: nonce, contract_address: "0x...", token_domain: token_domain
+    #     nonce: nonce, contract_address: resp[:rail0Contract],
+    #     token_domain: Rail0::Signing::TokenDomain.new(**resp[:signingPayload][:domain])
     #   ))
-    #   client.payments.authorize(payment_id, payment: payment, amount: "50000000",
-    #                              v: sig.v, r: sig.r, s: sig.s)
+    #   client.payments.sign(resp[:paymentId], v: sig.v, r: sig.r, s: sig.s)
+    #   client.payments.authorize(resp[:paymentId])
     #
     # @param params [SignPaymentParams]
     # @return [Eip3009Signature]
@@ -196,6 +199,18 @@ module Rail0
     end
 
     # Sign the EIP-3009 payload required by a charge call.
+    #
+    #   resp  = client.payments.create_payment(
+    #     payment: payment, amount: "25000000", chain_id: chain_id, mode: "charge"
+    #   )
+    #   nonce = resp[:signingPayload][:message][:nonce]
+    #   sig   = Rail0::Signing.sign_charge(Rail0::Signing::SignPaymentParams.new(
+    #     private_key: "0x...", payment: payment, amount: 25_000_000,
+    #     nonce: nonce, contract_address: resp[:rail0Contract],
+    #     token_domain: Rail0::Signing::TokenDomain.new(**resp[:signingPayload][:domain])
+    #   ))
+    #   client.payments.sign(resp[:paymentId], v: sig.v, r: sig.r, s: sig.s)
+    #   client.payments.charge(resp[:paymentId])
     #
     # @param params [SignPaymentParams]
     # @return [Eip3009Signature]
