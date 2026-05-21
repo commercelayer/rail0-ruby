@@ -129,9 +129,9 @@ module Rail0
       key     = Eth::Key.new(priv: key_hex)
       digest  = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce)
 
-      # Eth::Key#sign(blob, prehash=true) — pass false to skip an extra keccak256.
-      # Returns a 65-byte binary string: r(32) + s(32) + v(1) where v is 27 or 28.
-      sig = key.sign(digest, false)
+      # eth 0.5.17: Eth::Key#sign(blob, chain_id=nil) — second param is chain_id, not prehash.
+      # Pass the digest directly; the gem does not re-hash it.
+      sig = key.sign(digest)
 
       # The eth gem returns the signature as a hex string (no 0x prefix).
       sig_bytes = [sig].pack("H*")
@@ -148,6 +148,42 @@ module Rail0
     # ================================================================
     #  Public API
     # ================================================================
+
+    # Sign the EIP-3009 payload using the signingPayload returned by POST /payments.
+    #
+    # This is the simplest entry point: pass the full signingPayload from the
+    # create_payment response and a private key — all fields are read directly
+    # from the payload without any manual reconstruction.
+    #
+    #   resp = client.payments.create_payment(payment: ..., chainId: ..., mode: ...)
+    #   sig  = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signingPayload])
+    #   client.payments.sign(resp[:paymentId],
+    #     signature: "0x#{sig.r[2..]}#{sig.s[2..]}#{sig.v.to_s(16).rjust(2, '0')}")
+    #
+    # @param private_key [String] Payer's private key (0x-prefixed hex).
+    # @param signing_payload [Hash] The signingPayload hash from the create_payment response.
+    # @return [Eip3009Signature]
+    def self.sign_payload(private_key, signing_payload)
+      d = signing_payload[:domain]
+      m = signing_payload[:message]
+
+      domain = TokenDomain.new(
+        name:               d[:name],
+        version:            d[:version],
+        chain_id:           d[:chainId],
+        verifying_contract: d[:verifyingContract]
+      )
+
+      do_sign(
+        private_key, domain,
+        from:         m[:from],
+        to:           m[:to],
+        value:        m[:value].to_i,
+        valid_after:  m[:validAfter].to_i,
+        valid_before: m[:validBefore].to_i,
+        nonce:        m[:nonce]
+      )
+    end
 
     # Sign a raw EIP-3009 transferWithAuthorization message.
     #

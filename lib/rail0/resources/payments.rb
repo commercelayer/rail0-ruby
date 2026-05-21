@@ -5,6 +5,13 @@ module Rail0
         @http = http
       end
 
+      # Fetch current payment state (DB status + on-chain amounts).
+      # @param payment_id [String] bytes32 payment identifier
+      # @return [Hash] PaymentResponse: paymentId, status, onChain: { exists, capturableAmount, refundableAmount }, …
+      def get(payment_id)
+        @http.get("/payments/#{payment_id}")
+      end
+
       # Create a payment intent. Returns the EIP-712 signingPayload for the payer to sign.
       # @param params [Hash] CreatePaymentRequest fields: payment, amount, chainId, mode
       # @return [Hash] CreatePaymentResponse: paymentId, configHash, payment, amount, chainId, rail0Contract, signingPayload
@@ -22,9 +29,17 @@ module Rail0
 
       # Relay the stored EIP-3009 signature to the RAIL0 authorize() function. Called by the payee.
       # @param payment_id [String]
-      # @return [Hash] AuthorizePaymentResponse: paymentId, transactionHash, capturableAmount
+      # @return [Hash] PrepareTransactionResponse: unsignedTransaction, from
       def authorize(payment_id)
         @http.post("/payments/#{payment_id}/authorize")
+      end
+
+      # Broadcast a signed authorize transaction. Called by the payee.
+      # @param payment_id [String]
+      # @param params [Hash] SubmitTransactionRequest fields: signedTransaction
+      # @return [Hash] AuthorizePaymentResponse: paymentId, transactionHash, capturableAmount, authorizationExpiry
+      def submit_authorize(payment_id, params)
+        @http.post("/payments/#{payment_id}/authorize/submit", params)
       end
 
       # Relay the stored EIP-3009 signature to the RAIL0 charge() function (one-shot). Called by the payee.
@@ -65,11 +80,20 @@ module Rail0
         @http.post("/payments/#{payment_id}/void/submit", params)
       end
 
-      # Release escrowed funds back to the payer after authorizationExpiry. Permissionless.
+      # Build the unsigned release() transaction. Optionally pass callerAddress for buyer-initiated release.
       # @param payment_id [String]
+      # @param params [Hash] optional: callerAddress
+      # @return [Hash] PrepareTransactionResponse: unsignedTransaction, from
+      def prepare_release(payment_id, params = {})
+        @http.post("/payments/#{payment_id}/release", params)
+      end
+
+      # Broadcast a signed release transaction.
+      # @param payment_id [String]
+      # @param params [Hash] SubmitTransactionRequest fields: signedTransaction
       # @return [Hash] ReleasePaymentResponse: paymentId, transactionHash, releasedAmount
-      def release(payment_id)
-        @http.post("/payments/#{payment_id}/release")
+      def submit_release(payment_id, params)
+        @http.post("/payments/#{payment_id}/release/submit", params)
       end
 
       # Build the unsigned ERC-20 approve() transaction needed before a refund. Called by the payee.

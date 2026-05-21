@@ -113,9 +113,12 @@ module Rail0
       http.read_timeout  = @timeout
       http.write_timeout = @timeout
 
-      req = method == :get ? Net::HTTP::Get.new(uri.request_uri) : Net::HTTP::Post.new(uri.request_uri)
+      req_class = { get: Net::HTTP::Get, post: Net::HTTP::Post,
+                    put: Net::HTTP::Put, delete: Net::HTTP::Delete }
+                  .fetch(method, Net::HTTP::Post)
+      req = req_class.new(uri.request_uri)
       @headers.each { |k, v| req[k] = v }
-      req.body = body.to_json if body && method == :post
+      req.body = body.to_json if body && %i[post put patch].include?(method)
 
       http.request(req)
     end
