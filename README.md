@@ -36,7 +36,7 @@ methods = client.merchants.payment_methods(1)
 usdc = methods.find { |m| m['tokenSymbol'] == 'USDC' }
 
 # Step 2 — payer creates payment intent
-resp = client.payments.create_payment(
+resp = client.payments.create(
   payment: {
     payer: '0xBuyer...',
     payee: usdc['walletAddress'],
@@ -50,22 +50,33 @@ payment_id = resp['paymentId']
 
 # Step 3 — payer signs the EIP-3009 payload off-chain
 require 'rail0/signing'
-sig = Rail0::Signing.sign_payload('0x...', resp['signingPayload'].transform_keys(&:to_sym))
+sig = Rail0::Signing.sign_payload(
+  '0x...',                                          # payer's private key
+  resp['signingPayload'].transform_keys(&:to_sym)   # from create
+)
 
-# Step 4 — payer submits the signature
-client.payments.sign(payment_id, v: sig.v, r: sig.r, s: sig.s)
+# Step 4 — payer submits the signature (single 65-byte hex string)
+client.payments.sign(payment_id, signature: sig.to_hex)
 
 # Step 5 — payee prepares the unsigned authorize tx
-tx = client.payments.authorize(payment_id)
+tx = client.payments.prepare_authorize(payment_id)
 # tx['unsignedTransaction'] — RLP-encoded EIP-1559 tx, sign with payee's key
 
-# Step 6 — payee broadcasts the signed authorize tx
+# Step 6 — payee broadcasts the signed authorize tx (async, HTTP 202)
 signed_tx = sign_eip1559(tx['unsignedTransaction'])  # your signing logic
-client.payments.submit_authorize(payment_id, signedTransaction: signed_tx)
+result = client.payments.submit_transaction(payment_id, signedTransaction: signed_tx)
+# result['status'] => "submitting"
 
-# Step 7 — payee captures the funds
+# Step 7 — poll until status leaves "submitting"
+loop do
+  state = client.payments.get(payment_id)
+  break unless state['status'] == 'submitting'
+  sleep 2
+end
+
+# Step 8 — payee captures the funds
 capture_tx = client.payments.prepare_capture(payment_id, amount: '50000000')
-client.payments.submit_capture(payment_id, signedTransaction: sign_eip1559(capture_tx))
+client.payments.submit_transaction(payment_id, signedTransaction: sign_eip1559(capture_tx['unsignedTransaction']))
 ```
 
 ## Payment lifecycle
@@ -74,19 +85,20 @@ client.payments.submit_capture(payment_id, signedTransaction: sign_eip1559(captu
                             authorizationExpiry       refundExpiry
                                    │                       │
   ─────────────────────────────────┼───────────────────────┼──────▶ time
-   create → sign → authorize       │   capture / void       │   approve+refund
-                                    │   release              │
+   create → sign → prepare_authorize│  prepare_capture/void │   prepare_approve+prepare_refund
+                   + submit_transaction│  + submit_transaction│   + submit_transaction each
+                                    │   prepare_release      │
 ```
 
 | Operation | Caller | What it does |
 |-----------|--------|--------------|
-| `authorize` + `submit_authorize` | payee | Prepare + broadcast the authorize tx; funds move to escrow |
-| `charge` | payee | Server-side one-shot: authorize + capture with no escrow window |
-| `prepare_capture` / `submit_capture` | payee | Moves escrowed funds to the merchant |
-| `prepare_void` / `submit_void` | payee | Cancels the hold, returns funds to the payer |
-| `prepare_release` / `submit_release` | anyone | Reclaims escrow after `authorizationExpiry` |
-| `prepare_approve` / `submit_approve` | payee | ERC-20 `approve()` required before a refund |
-| `prepare_refund` / `submit_refund` | payee | Returns captured funds to the payer |
+| `prepare_authorize` + `submit_transaction` | payee | Prepare + broadcast the authorize tx; funds move to escrow |
+| `prepare_charge` + `submit_transaction` | payee | One-shot authorize + capture in a single tx; no escrow window |
+| `prepare_capture` + `submit_transaction` | payee | Moves escrowed funds to the merchant |
+| `prepare_void` + `submit_transaction` | payee | Cancels the hold, returns funds to the payer |
+| `prepare_release` + `submit_transaction` | anyone | Reclaims escrow after `authorizationExpiry` |
+| `prepare_approve` + `submit_transaction` | payee | ERC-20 `approve()` required before a refund |
+| `prepare_refund` + `submit_transaction` | payee | Returns captured funds to the payer |
 
 ## API reference
 
@@ -162,17 +174,19 @@ Fetches the current payment state (DB status + live on-chain escrow balances).
 
 ```ruby
 state = client.payments.get(payment_id)
-# state['status']                        → "authorized", "captured", …
+# state['status']                        → "authorized", "captured", "submitting", …
 # state['onChain']['capturableAmount']   → escrowed amount still available
 # state['onChain']['refundableAmount']   → captured amount eligible for refund
 ```
 
-#### `.create_payment(params)`
+Possible status values: `pending`, `signed`, `submitting`, `submitted`, `authorized`, `captured`, `partially_captured`, `voided`, `released`, `approved`, `refunded`, `partially_refunded`, `failed`.
+
+#### `.create(params)`
 
 Creates a payment intent and returns the EIP-712 signing payload for the payer.
 
 ```ruby
-resp = client.payments.create_payment(
+resp = client.payments.create(
   payment: { payer: '0x...', payee: '0x...', token: '0x...' },
   amount: '50000000',
   chainId: 84532,
@@ -185,72 +199,79 @@ resp = client.payments.create_payment(
 
 #### `.sign(payment_id, params)`
 
-Submits the payer's EIP-712 signature (v, r, s).
+Submits the payer's EIP-712 signature as a single 65-byte hex string (0x-prefixed, 132 chars).
 
 ```ruby
-client.payments.sign(payment_id, v: sig.v, r: sig.r, s: sig.s)
+client.payments.sign(payment_id, signature: '0x...')
+# → { paymentId, status, recoveredPayer }
 ```
 
-#### `.authorize(payment_id)`
+#### `.prepare_authorize(payment_id)`
 
 Prepares the unsigned `authorize()` transaction. Called by the payee.
-Returns `PrepareTransactionResponse` — sign `unsignedTransaction` with the payee's key and pass to `submit_authorize`.
+Requires the payer's signature to have been stored via `.sign`.
+Returns `PrepareTransactionResponse` — sign `unsignedTransaction` with the payee's key and pass to `submit_transaction`.
 
-#### `.submit_authorize(payment_id, params)`
+#### `.prepare_charge(payment_id)`
 
-Broadcasts the signed authorize transaction. Funds are moved to escrow.
+Prepares the unsigned one-shot authorize + capture transaction. Called by the payee.
+Requires the payer's signature (`mode: 'charge'`) to have been stored via `.sign`.
+Returns `PrepareTransactionResponse`. Pass the signed tx to `submit_transaction`.
 
-```ruby
-tx = client.payments.authorize(payment_id)
-client.payments.submit_authorize(payment_id, signedTransaction: signed_bytes)
-# → { paymentId, transactionHash, capturableAmount, authorizationExpiry }
-```
+#### `.prepare_capture(payment_id, params)`
 
-#### `.charge(payment_id)`
-
-Server-side one-shot: relays the EIP-3009 signature and completes authorize + capture in a single transaction. No `submit` step. Called by the payee.
-
-#### `.prepare_capture(payment_id, params)` / `.submit_capture(payment_id, params)`
-
-Build and broadcast the capture transaction. Called by the payee. Partial captures are supported — call repeatedly until fully captured or the authorization expires.
+Builds the capture transaction. Partial captures are supported — call repeatedly until fully captured or the authorization expires.
 
 ```ruby
 tx = client.payments.prepare_capture(payment_id, amount: '50000000')
-client.payments.submit_capture(payment_id, signedTransaction: signed_tx)
-# → { paymentId, transactionHash, capturedAmount, capturableAmount, refundableAmount }
+# tx['unsignedTransaction'] — sign and pass to submit_transaction
 ```
 
-#### `.prepare_void(payment_id)` / `.submit_void(payment_id, params)`
+#### `.prepare_void(payment_id)`
 
-Build and broadcast the void transaction. Cancels the authorization and releases all escrowed funds to the payer. Called by the payee.
+Builds the void transaction. Cancels the authorization and releases all escrowed funds to the payer. Called by the payee.
 
-#### `.prepare_release(payment_id, params)` / `.submit_release(payment_id, params)`
+#### `.prepare_release(payment_id, params = {})`
 
-Build and broadcast the release transaction. Returns escrowed funds to the payer after `authorizationExpiry`. Pass `callerAddress:` to build the tx for the buyer (payer); defaults to the payee.
+Builds the release transaction. Returns escrowed funds to the payer after `authorizationExpiry`. Pass `callerAddress:` to build the tx for the buyer (payer); defaults to the payee.
 
 ```ruby
 tx = client.payments.prepare_release(payment_id, callerAddress: buyer_address)
-client.payments.submit_release(payment_id, signedTransaction: buyer_signed_tx)
-# → { paymentId, transactionHash, releasedAmount }
+# sign tx['unsignedTransaction'] with buyer's key, then submit_transaction
 ```
 
-#### `.prepare_approve(payment_id, params)` / `.submit_approve(payment_id, params)`
+#### `.prepare_approve(payment_id, params)`
 
-Build and broadcast an ERC-20 `approve()` to allow the RAIL0 contract to pull funds for a refund. Include `amount:` in `submit_approve` so the API records it in the transaction log.
+Builds an ERC-20 `approve()` to allow the RAIL0 contract to pull funds for a refund. Called by the payee before `.prepare_refund`.
 
 ```ruby
 tx = client.payments.prepare_approve(payment_id, amount: '50000000')
-client.payments.submit_approve(payment_id, signedTransaction: signed_tx, amount: '50000000')
+# sign and submit_transaction, then prepare_refund
 ```
 
-#### `.prepare_refund(payment_id, params)` / `.submit_refund(payment_id, params)`
+#### `.prepare_refund(payment_id, params)`
 
-Build and broadcast the refund transaction. Partial refunds are supported.
+Builds the refund transaction. Partial refunds are supported.
 
 ```ruby
 tx = client.payments.prepare_refund(payment_id, amount: '50000000')
-client.payments.submit_refund(payment_id, signedTransaction: signed_tx)
-# → { paymentId, transactionHash, refundedAmount, refundableAmount }
+# sign and submit_transaction
+```
+
+#### `.submit_transaction(payment_id, params)`
+
+Broadcasts a signed transaction on-chain. This is the **single submit method** used after every `prepare_*` call. Returns HTTP 202 immediately — the operation is determined server-side from the preceding prepare step.
+
+```ruby
+result = client.payments.submit_transaction(payment_id, signedTransaction: signed_tx)
+# result['status'] => "submitting"
+
+# Poll get() until status leaves "submitting"
+loop do
+  state = client.payments.get(payment_id)
+  break unless state['status'] == 'submitting'
+  sleep 2
+end
 ```
 
 ---
@@ -265,8 +286,11 @@ require 'rail0/signing'
 # Simplest: sign the full signingPayload from the API response
 sig = Rail0::Signing.sign_payload(
   '0x...',                                          # payer's private key
-  resp['signingPayload'].transform_keys(&:to_sym)   # from create_payment
+  resp['signingPayload'].transform_keys(&:to_sym)   # from create
 )
+
+# Pass the resulting signature as a single hex string to sign()
+client.payments.sign(payment_id, signature: sig.to_hex)
 
 # Or sign with explicit params (e.g. when you need to reconstruct the payload)
 sig = Rail0::Signing.sign_authorize(Rail0::Signing::SignPaymentParams.new(
@@ -283,7 +307,7 @@ sig = Rail0::Signing.sign_authorize(Rail0::Signing::SignPaymentParams.new(
   ),
 ))
 
-# sig.v, sig.r, sig.s — pass to client.payments.sign
+client.payments.sign(payment_id, signature: sig.to_hex)
 ```
 
 Use `sign_charge` instead of `sign_authorize` when `mode: 'charge'`.
@@ -296,7 +320,7 @@ Non-2xx responses raise `Rail0::ApiError`:
 
 ```ruby
 begin
-  client.payments.submit_capture(payment_id, signedTransaction: signed_tx)
+  client.payments.submit_transaction(payment_id, signedTransaction: signed_tx)
 rescue Rail0::ApiError => e
   puts e.status   # 422
   puts e.code     # "AuthorizationExpired"
@@ -308,7 +332,7 @@ Common error codes:
 
 | Code | Cause |
 |------|-------|
-| `PaymentAlreadyExists` | `authorize`/`charge` relayed twice for the same `paymentId` |
+| `PaymentAlreadyExists` | `prepare_authorize`/`prepare_charge` called twice for the same `paymentId` |
 | `PaymentNotFound` | `paymentId` does not exist |
 | `AuthorizationExpired` | `authorizationExpiry` is in the past (capture) |
 | `AuthorizationNotExpired` | `authorizationExpiry` has not passed yet (release) |
