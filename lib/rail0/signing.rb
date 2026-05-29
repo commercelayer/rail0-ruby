@@ -69,11 +69,15 @@ module Rail0
     DOMAIN_TYPE   = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     TRANSFER_TYPE = "TransferWithAuthorization(address from,address to,uint256 value," \
                     "uint256 validAfter,uint256 validBefore,bytes32 nonce)"
+    RECEIVE_TYPE  = "ReceiveWithAuthorization(address from,address to,uint256 value," \
+                    "uint256 validAfter,uint256 validBefore,bytes32 nonce)"
 
     DOMAIN_TYPEHASH   = Eth::Util.keccak256(DOMAIN_TYPE)
     TRANSFER_TYPEHASH = Eth::Util.keccak256(TRANSFER_TYPE)
+    RECEIVE_TYPEHASH  = Eth::Util.keccak256(RECEIVE_TYPE)
 
-    private_constant :DOMAIN_TYPE, :TRANSFER_TYPE, :DOMAIN_TYPEHASH, :TRANSFER_TYPEHASH
+    private_constant :DOMAIN_TYPE, :TRANSFER_TYPE, :RECEIVE_TYPE,
+                     :DOMAIN_TYPEHASH, :TRANSFER_TYPEHASH, :RECEIVE_TYPEHASH
 
     # ================================================================
     #  ABI encoding helpers
@@ -114,9 +118,9 @@ module Rail0
       )
     end
 
-    def self.hash_struct(from:, to:, value:, valid_after:, valid_before:, nonce:)
+    def self.hash_struct(from:, to:, value:, valid_after:, valid_before:, nonce:, typehash: TRANSFER_TYPEHASH)
       Eth::Util.keccak256(
-        TRANSFER_TYPEHASH +
+        typehash +
         abi_address(from) +
         abi_address(to) +
         uint256_to_bytes32(value) +
@@ -126,11 +130,12 @@ module Rail0
       )
     end
 
-    def self.build_digest(domain, from:, to:, value:, valid_after:, valid_before:, nonce:)
+    def self.build_digest(domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash: TRANSFER_TYPEHASH)
       Eth::Util.keccak256(
         "\x19\x01" +
         hash_domain(domain) +
-        hash_struct(from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce)
+        hash_struct(from: from, to: to, value: value, valid_after: valid_after,
+                    valid_before: valid_before, nonce: nonce, typehash: typehash)
       )
     end
 
@@ -140,10 +145,10 @@ module Rail0
     #  Internal sign helper
     # ================================================================
 
-    def self.do_sign(private_key, domain, from:, to:, value:, valid_after:, valid_before:, nonce:)
+    def self.do_sign(private_key, domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash: TRANSFER_TYPEHASH)
       key_hex = private_key.start_with?("0x") ? private_key[2..] : private_key
       key     = Eth::Key.new(priv: key_hex)
-      digest  = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce)
+      digest  = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce, typehash: typehash)
 
       # eth 0.5.17+: Eth::Key#sign(blob) — pass the digest directly; the gem does not re-hash it.
       sig       = key.sign(digest)
@@ -190,6 +195,10 @@ module Rail0
         verifying_contract: d[:verifyingContract]
       )
 
+      # Use ReceiveWithAuthorization typehash when primaryType indicates a
+      # receiveWithAuthorization call (e.g. refund). Default: TransferWithAuthorization.
+      th = signing_payload[:primaryType] == "ReceiveWithAuthorization" ? RECEIVE_TYPEHASH : TRANSFER_TYPEHASH
+
       do_sign(
         private_key, domain,
         from:         m[:from],
@@ -197,7 +206,8 @@ module Rail0
         value:        m[:value].to_i,
         valid_after:  m[:validAfter].to_i,
         valid_before: m[:validBefore].to_i,
-        nonce:        m[:nonce]
+        nonce:        m[:nonce],
+        typehash:     th
       )
     end
 
