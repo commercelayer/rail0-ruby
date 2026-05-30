@@ -58,8 +58,8 @@ module Rail0
     # feeReceiver) are fixed API configuration applied server-side.
     PaymentInput = Struct.new(
       :payer,   # Address — Buyer address. Funds are pulled from this address.
-      :payee,   # Address — Merchant wallet address (walletAddress from GET /merchants/{id}/payment-methods).
-      :token,   # Address — ERC-20 token address (tokenAddress from GET /merchants/{id}/payment-methods).
+      :payee,   # Address — Merchant wallet address (walletAddress from GET /accounts/{id}/payment-methods).
+      :token,   # Address — ERC-20 token address (tokenAddress from GET /accounts/{id}/payment-methods).
       :amount,  # Uint256String — Amount to pay (in token base units).
       keyword_init: true
     )
@@ -118,7 +118,7 @@ module Rail0
 
     # An unsigned EIP-1559 transaction ready for the payee to sign. Sign with `eth_signTransaction`
     # (browser wallet) or any secp256k1 library, then submit to `POST
-    # /payments/{paymentId}/transactions/submit`.
+    # /payments/{paymentId}/{operation}`.
     PrepareTransactionResponse = Struct.new(
       :unsignedTransaction,   # String — RLP-encoded unsigned EIP-1559 transaction (type 2).
       :to,                    # Address — Target contract address (informational; already encoded in `unsignedTransaction`).
@@ -143,20 +143,12 @@ module Rail0
     SubmitTransactionAcceptedResponse = Struct.new(
       :paymentId,  # Bytes32 — Payment identifier.
       :status,     # String — Always `submitting` — the worker has not yet received the on-chain receipt.
-      :token,      # Address — Token contract address. Present only when `operation=approve`.
-      :spender,    # Address — RAIL0 contract address approved as spender. Present only when `operation=approve`.
       keyword_init: true
     )
 
     # Amount to capture from escrow. May be less than `capturableAmount` for a partial capture.
     CapturePaymentRequest = Struct.new(
       :amount,  # Uint256String — Amount to capture (in token base units). Must be > 0 and <= current capturableAmount.
-      keyword_init: true
-    )
-
-    # Allowance to grant the RAIL0 contract on the token.
-    ApproveRequest = Struct.new(
-      :amount,  # Uint256String — Allowance amount (in token base units). Use '115792089237316195423570985008687907853269984665640564039457584007913129639935' for unlimited approval.
       keyword_init: true
     )
 
@@ -193,7 +185,7 @@ module Rail0
       :paymentId,    # Bytes32 — Parent payment identifier.
       :operation,    # String — Smart contract operation executed by this transaction.
       :status,       # String — `submitted` = transaction broadcast to the network, awaiting on-chain confirmation. `confirmed` = mined and successful. `failed` = transaction reverted on-chain.
-      :amount,       # Uint256String — Token amount processed. `null` until confirmed (and always `null` for `approve`).
+      :amount,       # Uint256String — Token amount processed. `null` until confirmed.
       :feeAmount,    # Uint256String — Protocol fee deducted. `"0"` until confirmed.
       :blockNumber,  # Integer — Block number in which the transaction was mined. `null` until confirmed.
       :submittedAt,  # String — ISO 8601 timestamp when the transaction was broadcast on-chain.

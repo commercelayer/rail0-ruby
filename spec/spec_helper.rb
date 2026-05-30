@@ -19,8 +19,8 @@ RSpec.configure do |config|
 end
 
 # Shared test fixtures
-PAYMENT_ID  = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-MERCHANT_ID = "018e1234-5678-7abc-9def-012345678901"
+PAYMENT_ID = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ACCOUNT_ID = "018e1234-5678-7abc-9def-012345678901"
 BASE_URL    = "https://api.rail0.xyz"
 
 PAYMENT_INPUT = {
