@@ -21,7 +21,7 @@ module Rail0
       # Fetch a single-use SIWE nonce from the API.
       # @return [Hash] { nonce:, expires_at: }
       def nonce
-        @http.get("/auth/nonce")
+        @http.post("/nonces", {})
       end
 
       # Submit a pre-built SIWE message and its signature, return a JWT.

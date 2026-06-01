@@ -9,7 +9,7 @@ module Rail0
 
       # Create a payment intent. Returns the EIP-712 signingPayload for the payer to sign.
       # @param params [Hash] payment (PaymentInput), chain_id, mode
-      # @return [Hash] rail0_id, config_hash, payment, chain_id, rail0_contract, signing_payload
+      # @return [Hash] rail0_id, config_hash, payment, chain_id, rail0_contract, signing_prepare
       def create(params)
         @http.post("/payments", params)
       end
@@ -40,8 +40,8 @@ module Rail0
       # Phase 1 — Build the unsigned authorize() transaction.
       # Creates a Transaction row with status pending.
       # @return [Hash] unsigned_transaction, to, data, chain_id, nonce, …
-      def authorize_payload(payment_id)
-        @http.post("/payments/#{payment_id}/authorize/payload")
+      def authorize_prepare(payment_id)
+        @http.post("/payments/#{payment_id}/authorize/prepare")
       end
 
       # Phase 2 — Submit the signed authorize transaction (HTTP 202).
@@ -54,8 +54,8 @@ module Rail0
       # ── Charge ───────────────────────────────────────────────────────────────
 
       # Phase 1 — Build the unsigned charge() transaction (authorize+capture, no escrow).
-      def charge_payload(payment_id)
-        @http.post("/payments/#{payment_id}/charge/payload")
+      def charge_prepare(payment_id)
+        @http.post("/payments/#{payment_id}/charge/prepare")
       end
 
       # Phase 2 — Submit the signed charge transaction.
@@ -68,8 +68,8 @@ module Rail0
 
       # Phase 1 — Build the unsigned capture() transaction.
       # @param params [Hash] amount (Uint256String)
-      def capture_payload(payment_id, params)
-        @http.post("/payments/#{payment_id}/capture/payload", params)
+      def capture_prepare(payment_id, params)
+        @http.post("/payments/#{payment_id}/capture/prepare", params)
       end
 
       # Phase 2 — Submit the signed capture transaction.
@@ -81,8 +81,8 @@ module Rail0
       # ── Void ─────────────────────────────────────────────────────────────────
 
       # Phase 1 — Build the unsigned void() transaction.
-      def void_payload(payment_id)
-        @http.post("/payments/#{payment_id}/void/payload")
+      def void_prepare(payment_id)
+        @http.post("/payments/#{payment_id}/void/prepare")
       end
 
       # Phase 2 — Submit the signed void transaction.
@@ -95,8 +95,8 @@ module Rail0
 
       # Phase 1 — Build the unsigned release() transaction.
       # @param params [Hash] caller_address (optional, defaults to payee)
-      def release_payload(payment_id, params = {})
-        @http.post("/payments/#{payment_id}/release/payload", params)
+      def release_prepare(payment_id, params = {})
+        @http.post("/payments/#{payment_id}/release/prepare", params)
       end
 
       # Phase 2 — Submit the signed release transaction.
@@ -108,7 +108,7 @@ module Rail0
       # ── Refund (EIP-3009) ────────────────────────────────────────────────────
 
       # Phase 1a — Request the EIP-3009 signing payload for the payee.
-      # Call with only amount; the payee signs the returned signing_payload.
+      # Call with only amount; the payee signs the returned signing_prepare.
       #
       # Phase 1b — Build the unsigned refund() transaction.
       # Call again with amount + v, r, s (from the signed EIP-3009 payload).
@@ -116,8 +116,8 @@ module Rail0
       #
       # No ERC-20 approve() needed — refund uses receiveWithAuthorization.
       # @param params [Hash] amount + optional (v, r, s)
-      def refund_payload(payment_id, params)
-        @http.post("/payments/#{payment_id}/refund/payload", params)
+      def refund_prepare(payment_id, params)
+        @http.post("/payments/#{payment_id}/refund/prepare", params)
       end
 
       # Phase 2 — Submit the signed refund transaction.

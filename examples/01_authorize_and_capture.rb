@@ -46,7 +46,7 @@ create_resp = client.payments.create(
 )
 
 payment_id     = create_resp[:paymentId]
-signing_payload = create_resp[:signingPayload]
+signing_prepare = create_resp[:signingPayload]
 
 puts "\nPayment created: #{payment_id}"
 
@@ -57,13 +57,13 @@ puts "\nPayment created: #{payment_id}"
 # Browser wallets:
 #   signature = await window.ethereum.request({
 #     method: "eth_signTypedData_v4",
-#     params: [buyer_address, JSON.stringify(signing_payload)]
+#     params: [buyer_address, JSON.stringify(signing_prepare)]
 #   })
 #
 # Backend (direct key access):
 #   require "eth"
 #   key     = Eth::Key.new(priv: "0x...")
-#   digest  = Eth::Eip712.hash(signing_payload[:domain], signing_payload[:types], signing_payload[:message])
+#   digest  = Eth::Eip712.hash(signing_prepare[:domain], signing_prepare[:types], signing_prepare[:message])
 #   signature = key.sign(digest)
 
 signature = "0x" + "ab" * 65  # placeholder — replace with real signature

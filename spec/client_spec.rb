@@ -17,13 +17,13 @@ RSpec.describe Rail0::Client do
   end
 
   # ================================================================
-  #  auth.nonce — GET /auth/nonce
+  #  auth.nonce — POST /nonces
   # ================================================================
 
   describe "auth.nonce" do
     it "returns nonce and expires_at" do
       nonce_response = { nonce: "abc123xyz", expires_at: "2026-06-01T12:00:00Z" }
-      stub_get("/auth/nonce", nonce_response)
+      stub_post("/nonces", nonce_response)
 
       result = client.auth.nonce
 
@@ -75,7 +75,7 @@ RSpec.describe Rail0::Client do
         expires_at: "2026-06-02T12:00:00Z"
       }
 
-      stub_get("/auth/nonce", nonce_response)
+      stub_post("/nonces", nonce_response)
 
       captured_body = nil
       post_stub = stub_request(:post, "#{BASE_URL}/auth")
@@ -96,7 +96,7 @@ RSpec.describe Rail0::Client do
 
     it "raises Rail0::ApiError when address is not registered" do
       nonce_response = { nonce: "tEsTn0nce42", expires_at: "2026-06-01T12:00:00Z" }
-      stub_get("/auth/nonce", nonce_response)
+      stub_post("/nonces", nonce_response)
       stub_post("/auth", { error: "address_not_registered", message: "Address is not registered." }, status: 403)
 
       expect do
@@ -166,14 +166,14 @@ RSpec.describe Rail0::Client do
   end
 
   # ================================================================
-  #  payments.authorize_payload — POST /payments/{id}/authorize/payload
+  #  payments.authorize_prepare — POST /payments/{id}/authorize/prepare
   # ================================================================
 
-  describe "payments.authorize_payload" do
+  describe "payments.authorize_prepare" do
     it "returns an unsigned transaction" do
-      stub_post("/payments/#{PAYMENT_ID}/authorize/payload", PREPARE_RESPONSE)
+      stub_post("/payments/#{PAYMENT_ID}/authorize/prepare", PREPARE_RESPONSE)
 
-      result = client.payments.authorize_payload(PAYMENT_ID)
+      result = client.payments.authorize_prepare(PAYMENT_ID)
 
       expect(result[:unsignedTransaction]).to eq(PREPARE_RESPONSE[:unsignedTransaction])
       expect(result[:gasLimit]).to eq("200000")
@@ -196,87 +196,87 @@ RSpec.describe Rail0::Client do
   end
 
   # ================================================================
-  #  payments.charge_payload — POST /payments/{id}/charge/payload
+  #  payments.charge_prepare — POST /payments/{id}/charge/prepare
   # ================================================================
 
-  describe "payments.charge_payload" do
+  describe "payments.charge_prepare" do
     it "returns an unsigned charge transaction" do
-      stub_post("/payments/#{PAYMENT_ID}/charge/payload", PREPARE_RESPONSE)
+      stub_post("/payments/#{PAYMENT_ID}/charge/prepare", PREPARE_RESPONSE)
 
-      result = client.payments.charge_payload(PAYMENT_ID)
+      result = client.payments.charge_prepare(PAYMENT_ID)
 
       expect(result[:unsignedTransaction]).to eq(PREPARE_RESPONSE[:unsignedTransaction])
     end
   end
 
   # ================================================================
-  #  payments.capture_payload — POST /payments/{id}/capture/payload
+  #  payments.capture_prepare — POST /payments/{id}/capture/prepare
   # ================================================================
 
-  describe "payments.capture_payload" do
+  describe "payments.capture_prepare" do
     it "returns an unsigned capture transaction" do
-      stub_post("/payments/#{PAYMENT_ID}/capture/payload", PREPARE_RESPONSE)
+      stub_post("/payments/#{PAYMENT_ID}/capture/prepare", PREPARE_RESPONSE)
 
-      result = client.payments.capture_payload(PAYMENT_ID, { amount: "100000000" })
+      result = client.payments.capture_prepare(PAYMENT_ID, { amount: "100000000" })
 
       expect(result[:chainId]).to eq(84532)
     end
   end
 
   # ================================================================
-  #  payments.void_payload — POST /payments/{id}/void/payload
+  #  payments.void_prepare — POST /payments/{id}/void/prepare
   # ================================================================
 
-  describe "payments.void_payload" do
+  describe "payments.void_prepare" do
     it "returns an unsigned void transaction" do
-      stub_post("/payments/#{PAYMENT_ID}/void/payload", PREPARE_RESPONSE)
+      stub_post("/payments/#{PAYMENT_ID}/void/prepare", PREPARE_RESPONSE)
 
-      result = client.payments.void_payload(PAYMENT_ID)
+      result = client.payments.void_prepare(PAYMENT_ID)
 
       expect(result[:nonce]).to eq(42)
     end
   end
 
   # ================================================================
-  #  payments.release_payload — POST /payments/{id}/release/payload
+  #  payments.release_prepare — POST /payments/{id}/release/prepare
   # ================================================================
 
-  describe "payments.release_payload" do
+  describe "payments.release_prepare" do
     it "returns an unsigned release transaction" do
-      stub_post("/payments/#{PAYMENT_ID}/release/payload", PREPARE_RESPONSE)
+      stub_post("/payments/#{PAYMENT_ID}/release/prepare", PREPARE_RESPONSE)
 
-      result = client.payments.release_payload(PAYMENT_ID)
+      result = client.payments.release_prepare(PAYMENT_ID)
 
       expect(result[:to]).to eq(PREPARE_RESPONSE[:to])
     end
 
     it "accepts an optional callerAddress" do
-      stub_post("/payments/#{PAYMENT_ID}/release/payload", PREPARE_RESPONSE)
+      stub_post("/payments/#{PAYMENT_ID}/release/prepare", PREPARE_RESPONSE)
 
-      result = client.payments.release_payload(PAYMENT_ID, { callerAddress: PAYMENT_INPUT[:payer] })
+      result = client.payments.release_prepare(PAYMENT_ID, { callerAddress: PAYMENT_INPUT[:payer] })
 
       expect(result[:unsignedTransaction]).to eq(PREPARE_RESPONSE[:unsignedTransaction])
     end
   end
 
   # ================================================================
-  #  payments.refund_payload — POST /payments/{id}/refund/payload
+  #  payments.refund_prepare — POST /payments/{id}/refund/prepare
   # ================================================================
 
-  describe "payments.refund_payload" do
-    it "returns signing_payload when called without v,r,s" do
+  describe "payments.refund_prepare" do
+    it "returns signing_prepare when called without v,r,s" do
       signing_resp = { signingPayload: { domain: {}, types: {}, primaryType: "ReceiveWithAuthorization", message: {} } }
-      stub_post("/payments/#{PAYMENT_ID}/refund/payload", signing_resp)
+      stub_post("/payments/#{PAYMENT_ID}/refund/prepare", signing_resp)
 
-      result = client.payments.refund_payload(PAYMENT_ID, { amount: "50000000" })
+      result = client.payments.refund_prepare(PAYMENT_ID, { amount: "50000000" })
 
       expect(result[:signingPayload]).to be_a(Hash)
     end
 
     it "returns unsigned_transaction when called with v,r,s" do
-      stub_post("/payments/#{PAYMENT_ID}/refund/payload", PREPARE_RESPONSE)
+      stub_post("/payments/#{PAYMENT_ID}/refund/prepare", PREPARE_RESPONSE)
 
-      result = client.payments.refund_payload(PAYMENT_ID, { amount: "50000000", v: 27, r: "0x" + "aa" * 32, s: "0x" + "bb" * 32 })
+      result = client.payments.refund_prepare(PAYMENT_ID, { amount: "50000000", v: 27, r: "0x" + "aa" * 32, s: "0x" + "bb" * 32 })
 
       expect(result[:gasLimit]).to eq("200000")
     end
@@ -331,11 +331,11 @@ RSpec.describe Rail0::Client do
     end
 
     it "raises Rail0::ApiError on 400 (missing fields)" do
-      stub_post("/payments/#{PAYMENT_ID}/capture/payload",
+      stub_post("/payments/#{PAYMENT_ID}/capture/prepare",
                 { error: "missing_amount", message: "amount is required." },
                 status: 400)
 
-      expect { client.payments.capture_payload(PAYMENT_ID, {}) }
+      expect { client.payments.capture_prepare(PAYMENT_ID, {}) }
         .to raise_error(Rail0::ApiError) do |err|
           expect(err.status).to eq(400)
           expect(err.error).to eq("missing_amount")
