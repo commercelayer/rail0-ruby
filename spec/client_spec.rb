@@ -17,6 +17,98 @@ RSpec.describe Rail0::Client do
   end
 
   # ================================================================
+  #  auth.nonce — GET /auth/nonce
+  # ================================================================
+
+  describe "auth.nonce" do
+    it "returns nonce and expires_at" do
+      nonce_response = { nonce: "abc123xyz", expires_at: "2026-06-01T12:00:00Z" }
+      stub_get("/auth/nonce", nonce_response)
+
+      result = client.auth.nonce
+
+      expect(result[:nonce]).to eq("abc123xyz")
+      expect(result[:expires_at]).to eq("2026-06-01T12:00:00Z")
+    end
+  end
+
+  # ================================================================
+  #  auth.verify — POST /auth
+  # ================================================================
+
+  describe "auth.verify" do
+    it "returns token and account fields, sending message and signature in body" do
+      verify_response = {
+        token:      "jwt.token.here",
+        address:    "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        account_id: "018e1234-5678-7abc-9def-012345678901",
+        expires_at: "2026-06-02T12:00:00Z"
+      }
+      stub = stub_request(:post, "#{BASE_URL}/auth")
+        .with(body: hash_including("message" => anything, "signature" => anything))
+        .to_return(status: 200, body: verify_response.to_json, headers: { "Content-Type" => "application/json" })
+
+      result = client.auth.verify(message: "some message", signature: "0xdeadbeef")
+
+      expect(stub).to have_been_requested
+      expect(result[:token]).to eq("jwt.token.here")
+      expect(result[:address]).to eq("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+      expect(result[:account_id]).to eq("018e1234-5678-7abc-9def-012345678901")
+      expect(result[:expires_at]).to eq("2026-06-02T12:00:00Z")
+    end
+  end
+
+  # ================================================================
+  #  auth.login — full SIWE flow
+  # ================================================================
+
+  HARDHAT_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+  HARDHAT_ADDRESS     = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+  describe "auth.login" do
+    it "performs full SIWE flow and returns token with valid signature" do
+      nonce_response = { nonce: "tEsTn0nce42", expires_at: "2026-06-01T12:00:00Z" }
+      verify_response = {
+        token:      "signed.jwt.token",
+        address:    HARDHAT_ADDRESS,
+        account_id: "018e1234-5678-7abc-9def-012345678901",
+        expires_at: "2026-06-02T12:00:00Z"
+      }
+
+      stub_get("/auth/nonce", nonce_response)
+
+      captured_body = nil
+      post_stub = stub_request(:post, "#{BASE_URL}/auth")
+        .to_return do |req|
+          captured_body = JSON.parse(req.body)
+          { status: 200, body: verify_response.to_json, headers: { "Content-Type" => "application/json" } }
+        end
+
+      result = client.auth.login(private_key: HARDHAT_PRIVATE_KEY, domain: "api.rail0.xyz")
+
+      expect(post_stub).to have_been_requested
+      expect(result[:token]).to eq("signed.jwt.token")
+      expect(captured_body).to have_key("message")
+      expect(captured_body).to have_key("signature")
+      sig = captured_body["signature"]
+      expect(sig).to match(/\A0x[0-9a-fA-F]{130}\z/)
+    end
+
+    it "raises Rail0::ApiError when address is not registered" do
+      nonce_response = { nonce: "tEsTn0nce42", expires_at: "2026-06-01T12:00:00Z" }
+      stub_get("/auth/nonce", nonce_response)
+      stub_post("/auth", { error: "address_not_registered", message: "Address is not registered." }, status: 403)
+
+      expect do
+        client.auth.login(private_key: HARDHAT_PRIVATE_KEY, domain: "api.rail0.xyz")
+      end.to raise_error(Rail0::ApiError) do |err|
+        expect(err.status).to eq(403)
+        expect(err.error).to eq("address_not_registered")
+      end
+    end
+  end
+
+  # ================================================================
   #  payments.create — POST /payments
   # ================================================================
 

@@ -1,5 +1,6 @@
 require_relative "http_client"
 require_relative "resources/accounts"
+require_relative "resources/auth"
 require_relative "resources/chains"
 require_relative "resources/payments"
 require_relative "resources/tokens"
@@ -8,8 +9,11 @@ module Rail0
   # Entry point for the RAIL0 SDK.
   #
   #   client = Rail0::Client.new(base_url: "https://api.rail0.xyz")
+  #   resp   = client.auth.login(private_key: "0x...", domain: "api.rail0.xyz")
   #   resp   = client.payments.create(payment: { payer: "0x...", payee: "0x...", token: "0x...", amount: "100000000" }, chain_id: 84532, mode: "authorize")
   class Client
+    # @return [Resources::Auth] SIWE authentication operations.
+    attr_reader :auth
     # @return [Resources::Accounts] Account configuration operations.
     attr_reader :accounts
     # @return [Resources::Chains] Blockchain listing operations.
@@ -30,6 +34,7 @@ module Rail0
         base_url: base_url, headers: headers, timeout: timeout,
         logger: logger, max_retries: max_retries, retry_delay: retry_delay
       )
+      @auth     = Resources::Auth.new(http)
       @accounts = Resources::Accounts.new(http)
       @chains   = Resources::Chains.new(http)
       @payments = Resources::Payments.new(http)

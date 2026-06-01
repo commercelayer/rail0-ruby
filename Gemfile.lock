@@ -70,6 +70,8 @@ GEM
     scrypt (3.1.0)
       ffi-compiler (>= 1.0, < 2.0)
       rake (~> 13)
+    siwe-rb (0.2.0)
+      eth (>= 0.5.11, < 1.0)
     webmock (3.26.2)
       addressable (>= 2.8.0)
       crack (>= 0.3.2)
@@ -83,6 +85,7 @@ DEPENDENCIES
   eth (~> 0.5)
   rail0!
   rspec (~> 3.13)
+  siwe-rb (~> 0.2)
   webmock (~> 3.23)
 
 CHECKSUMS
@@ -120,6 +123,7 @@ CHECKSUMS
   rspec-support (3.13.7) sha256=0640e5570872aafefd79867901deeeeb40b0c9875a36b983d85f54fb7381c47c
   rubyzip (2.4.1) sha256=8577c88edc1fde8935eb91064c5cb1aef9ad5494b940cf19c775ee833e075615
   scrypt (3.1.0) sha256=67fde35bc7e3b7fe906c5be9c242acf95fe4a886c89572f405f6b11df30aa6af
+  siwe-rb (0.2.0) sha256=f470ad513f7c85641c76dcd1e6a45867c8c93d8383ddd3feda7549606966c3d3
   webmock (3.26.2) sha256=774556f2ea6371846cca68c01769b2eac0d134492d21f6d0ab5dd643965a4c90
 
 BUNDLED WITH

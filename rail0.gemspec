@@ -18,5 +18,8 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   # No runtime dependencies — uses Ruby stdlib (net/http, json, openssl).
-  # For off-chain EIP-3009 signing, add `gem 'eth', '~> 0.5'` to your Gemfile.
+  # For off-chain EIP-3009 signing and SIWE authentication (client.auth.login),
+  # add to your Gemfile:
+  #   gem 'eth',     '~> 0.5'
+  #   gem 'siwe-rb', '~> 0.2'
 end
