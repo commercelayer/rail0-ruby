@@ -80,9 +80,11 @@ module Rail0
 
     # Parameters needed to create a payment intent.
     CreatePaymentRequest = Struct.new(
-      :payment,   # PaymentInput
-      :chain_id,  # Integer — EVM chain ID of the target network.
-      :mode,      # String — `authorize` — funds held in escrow, captured later. `charge` — one-shot: funds immediately distributed. The two modes use different EIP-3009 nonce prefixes; a signature for one cannot be reused for the other.
+      :payment,      # PaymentInput
+      :chain_id,     # Integer — EVM chain ID of the target network.
+      :mode,         # String — `authorize` — funds held in escrow, captured later. `charge` — one-shot: funds immediately distributed. The two modes use different EIP-3009 nonce prefixes; a signature for one cannot be reused for the other.
+      :description,  # String — Optional human-readable payment label visible to the payer (e.g. "Order #123 — Acme Store").
+      :metadata,     # Hash — Arbitrary key-value data for custom reconciliation. Set at creation and immutable. Max 4 KB.
       keyword_init: true
     )
 
@@ -93,6 +95,8 @@ module Rail0
       :chain_id,         # Integer
       :rail0_contract,   # Address — Address of the RAIL0 contract on the target chain.
       :signing_payload,  # SigningPayload
+      :description,      # String — Optional human-readable payment label.
+      :metadata,         # Hash — Arbitrary key-value data attached at creation for custom reconciliation.
       keyword_init: true
     )
 
@@ -108,6 +112,8 @@ module Rail0
       :chain_id,              # Integer
       :authorization_expiry,  # Integer
       :refund_expiry,         # Integer
+      :description,           # String — Optional human-readable payment label.
+      :metadata,              # Hash — Arbitrary key-value data attached at creation for custom reconciliation.
       :on_chain,              # Hash — Live on-chain amounts. Present when status is authorized, captured, voided, released, charged, or refunded.
       :last_broadcast_hash,   # Bytes32 — Hash of the most recently broadcast transaction.
       :failure_code,          # String — Machine-readable failure reason. Present only when status=failed.
@@ -200,6 +206,70 @@ module Rail0
       :event_type,    # String — The on-chain event emitted by the RAIL0 contract.
       :block_number,  # Integer — Block number in which the transaction was confirmed.
       :amount,        # Uint256String — Token amount from the on-chain event. Required for `captured` and `refunded` events; optional for others.
+      keyword_init: true
+    )
+
+    # A RAIL0 merchant account.
+    Account = Struct.new(
+      :id,          # String
+      :name,        # String
+      :slug,        # String
+      :email,       # String
+      :fee_bps,     # Integer
+      :active,      # Boolean
+      :created_at,  # String
+      :updated_at,  # String
+      keyword_init: true
+    )
+
+    # Condensed payment record returned by GET /payments.
+    PaymentSummary = Struct.new(
+      :rail0_id,              # Bytes32
+      :status,                # String
+      :mode,                  # String
+      :amount,                # String
+      :payer,                 # Address
+      :payee,                 # Address
+      :token,                 # Address
+      :authorization_expiry,  # Integer
+      :refund_expiry,         # Integer
+      :description,           # String
+      :metadata,              # Hash
+      :created_at,            # String
+      keyword_init: true
+    )
+
+    # An on-chain transaction attempt associated with a payment.
+    TransactionRecord = Struct.new(
+      :id,                # String
+      :operation,         # String
+      :status,            # String
+      :transaction_hash,  # Bytes32
+      :amount,            # String
+      :fee_amount,        # String
+      :block_number,      # Integer
+      :error_reason,      # String
+      :pending_at,        # String
+      :submitted_at,      # String
+      :confirmed_at,      # String
+      keyword_init: true
+    )
+
+    # A wallet token configuration linking a wallet address to a specific token on a chain.
+    WalletToken = Struct.new(
+      :id,              # String
+      :wallet_id,       # String
+      :address,         # Address — Ethereum wallet address.
+      :label,           # String
+      :default,         # Boolean
+      :active,          # Boolean
+      :token_id,        # String
+      :token_symbol,    # String
+      :token_address,   # Address
+      :token_decimals,  # Integer
+      :chain_id,        # Integer
+      :chain_name,      # String
+      :chain_slug,      # String
       keyword_init: true
     )
   end
