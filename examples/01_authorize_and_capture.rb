@@ -1,132 +1,158 @@
 # Standard two-step payment flow: authorize → capture
 #
 # On-chain flow:
-#   payer  signs EIP-3009     → off-chain
-#   payee  PUT /sign          → stores signature server-side
-#   payee  POST /authorize    → get unsigned tx
-#   payee  signs tx off-chain → signed tx
-#   payee  POST /transactions/submit  → async broadcast (HTTP 202)
-#   (poll) GET  /payments/:id → wait for status "authorized"
-#   payee  POST /capture      → get unsigned tx
-#   payee  signs tx off-chain → signed tx
-#   payee  POST /transactions/submit  → async broadcast (HTTP 202)
-#   (poll) GET  /payments/:id → wait for status "captured"
+#   payer  signs EIP-712 payload  → off-chain
+#   payer  PUT /payments/:id/sign → stores signature server-side
+#   payee  POST /authorize/prepare → receive unsigned tx
+#   payee  signs tx off-chain
+#   payee  POST /authorize         → async broadcast (HTTP 202)
+#   (poll) GET /payments/:id       → wait for status "authorized"
+#   payee  POST /capture/prepare   → receive unsigned tx
+#   payee  signs tx off-chain
+#   payee  POST /capture           → async broadcast (HTTP 202)
+#   (poll) GET /payments/:id       → wait for status "captured"
 
 require "rail0"
 
-client = Rail0::Client.new(base_url: "https://api.rail0.xyz")
+PAYER_KEY   = ENV.fetch("PAYER_PRIVATE_KEY")   # 0x-prefixed hex
+PAYEE_KEY   = ENV.fetch("PAYEE_PRIVATE_KEY")   # 0x-prefixed hex
+ACCOUNT_ID  = ENV.fetch("RAIL0_ACCOUNT_ID")    # UUID
+CHAIN_ID    = 5042002                           # Arc Testnet
 
-MERCHANT_ID = "018e1234-5678-7abc-9def-012345678901"
-CHAIN_ID    = 84532  # Base Sepolia
-
-# ----------------------------------------------------------------
-# Step 0 — Fetch accepted payment methods for the merchant
-# ----------------------------------------------------------------
-
-methods = client.merchants.payment_methods(MERCHANT_ID)
-method  = methods.find(&:dig.curry[:isDefault]) || methods.first
-
-puts "Using payment method: #{method[:tokenSymbol]} on #{method[:chainName]}"
-puts "  token:  #{method[:tokenAddress]}"
-puts "  payee:  #{method[:walletAddress]}"
+client = Rail0::Client.new(
+  base_url: "https://api.rail0.xyz",
+  logger:   Rail0::DEBUG_LOGGER
+)
 
 # ----------------------------------------------------------------
-# Step 1 — Create payment intent (buyer-side)
+# Step 0 — Fetch accepted payment methods for the account (public)
+# ----------------------------------------------------------------
+
+result  = client.accounts.wallets(ACCOUNT_ID, chain_id: CHAIN_ID, active: true)
+wallets = result[:data]   # paginated — unwrap :data
+method  = wallets.find { |w| w[:default] } || wallets.first
+
+puts "Using: #{method[:token_symbol]} on #{method[:chain_name]}"
+puts "  token:  #{method[:token_address]}"
+puts "  payee:  #{method[:address]}"
+
+# ----------------------------------------------------------------
+# Step 1 — Authenticate the payee (JWT)
+# ----------------------------------------------------------------
+
+auth_resp = client.auth.login(private_key: PAYEE_KEY, domain: "api.rail0.xyz")
+payee_jwt  = auth_resp[:token]
+
+payee_client = Rail0::Client.new(
+  base_url: "https://api.rail0.xyz",
+  headers:  { "Authorization" => "Bearer #{payee_jwt}" }
+)
+
+# ----------------------------------------------------------------
+# Step 2 — Create payment intent (payer-side)
 # ----------------------------------------------------------------
 
 create_resp = client.payments.create(
   payment: {
     payer:  "0xBuyerAddress000000000000000000000000000000",
-    payee:  method[:walletAddress],
-    token:  method[:tokenAddress],
+    payee:  method[:address],
+    token:  method[:token_address],
     amount: "100000000"  # 100 USDC (6 decimals)
   },
-  chainId: CHAIN_ID,
-  mode:    "authorize"
+  chain_id: CHAIN_ID,
+  mode:     "authorize",
+  metadata: { order_id: "ORD-123", customer_ref: "CUST-456" }
 )
 
-payment_id     = create_resp[:paymentId]
-signing_prepare = create_resp[:signingPayload]
+payment_id      = create_resp[:rail0_id]
+signing_payload = create_resp[:signing_payload]
 
 puts "\nPayment created: #{payment_id}"
 
 # ----------------------------------------------------------------
-# Step 2 — Buyer signs the EIP-712 payload off-chain
+# Step 3 — Payer signs the EIP-712 payload off-chain
 # ----------------------------------------------------------------
 #
-# Browser wallets:
+# Browser wallet:
 #   signature = await window.ethereum.request({
 #     method: "eth_signTypedData_v4",
-#     params: [buyer_address, JSON.stringify(signing_prepare)]
+#     params: [payer_address, JSON.stringify(signing_payload)]
 #   })
 #
-# Backend (direct key access):
+# Backend (direct key access) — eth gem:
 #   require "eth"
-#   key     = Eth::Key.new(priv: "0x...")
-#   digest  = Eth::Eip712.hash(signing_prepare[:domain], signing_prepare[:types], signing_prepare[:message])
-#   signature = key.sign(digest)
+#   key       = Eth::Key.new(priv: PAYER_KEY.delete_prefix("0x"))
+#   digest    = Eth::Eip712.hash(signing_payload[:domain], signing_payload[:types], signing_payload[:message])
+#   signature = "0x" + key.sign(digest).unpack1("H*")
 
 signature = "0x" + "ab" * 65  # placeholder — replace with real signature
 
 # ----------------------------------------------------------------
-# Step 3 — Submit the payer's signature (payee-side)
+# Step 4 — Submit the payer's signature
 # ----------------------------------------------------------------
 
-sign_resp = client.payments.sign(payment_id, { signature: })
-puts "Signature stored. Recovered payer: #{sign_resp[:recoveredPayer]}"
+sign_resp = client.payments.sign(payment_id, { signature: signature })
+puts "Signature stored. Recovered payer: #{sign_resp[:recovered_payer]}"
 
 # ----------------------------------------------------------------
-# Step 4 — Prepare the authorize transaction (payee-side)
+# Step 5 — Payee prepares the authorize transaction
 # ----------------------------------------------------------------
 
-prepare_resp = client.payments.prepare_authorize(payment_id)
-puts "\nUnsigned tx ready: #{prepare_resp[:unsignedTransaction][0, 20]}..."
+prepare_resp = payee_client.payments.authorize_prepare(payment_id)
+puts "\nUnsigned authorize tx: #{prepare_resp[:unsigned_transaction][0, 20]}..."
 
 # ----------------------------------------------------------------
-# Step 5 — Payee signs the transaction off-chain, then submits
+# Step 6 — Payee signs the tx off-chain, then submits
 # ----------------------------------------------------------------
 #
-#   signed_tx = wallet.sign_transaction(prepare_resp[:unsignedTransaction])
+#   signed_tx = wallet.sign_transaction(prepare_resp[:unsigned_transaction])
 
 signed_tx = "0x02f8ab"  # placeholder — replace with real signed tx
 
-submit_resp = client.payments.submit_transaction(payment_id, { signedTransaction: signed_tx })
-puts "Submitted. Status: #{submit_resp[:status]}"  # => "submitting"
+payee_client.payments.authorize(payment_id, { signed_transaction: signed_tx })
+puts "Authorize submitted (202). Polling..."
 
 # ----------------------------------------------------------------
-# Step 6 — Poll until authorized
+# Step 7 — Poll until authorized
 # ----------------------------------------------------------------
 
 loop do
   state = client.payments.get(payment_id)
   puts "  status: #{state[:status]}"
   break if state[:status] == "authorized"
-  raise "Payment failed: #{state[:failureCode]} — #{state[:failureMessage]}" if state[:status] == "failed"
-
+  raise "Payment failed: #{state[:failure_code]} — #{state[:failure_message]}" if state[:status] == "failed"
   sleep 2
 end
 
-on_chain = client.payments.get(payment_id)[:onChain]
-puts "\nAuthorized. capturableAmount: #{on_chain[:capturableAmount]}"
+on_chain = client.payments.get(payment_id)[:on_chain]
+puts "\nAuthorized. capturable_amount: #{on_chain[:capturable_amount]}"
 
 # ----------------------------------------------------------------
-# Step 7 — Prepare a (partial) capture
+# Step 8 — Prepare a (partial) capture
 # ----------------------------------------------------------------
 
-capture_prepare = client.payments.prepare_capture(payment_id, { amount: "50000000" })
-puts "\nCapture tx ready: #{capture_prepare[:unsignedTransaction][0, 20]}..."
+capture_prepare = payee_client.payments.capture_prepare(payment_id, { amount: "50000000" })
+puts "\nUnsigned capture tx: #{capture_prepare[:unsigned_transaction][0, 20]}..."
 
 signed_capture = "0x02f9ab"  # placeholder
 
-client.payments.submit_transaction(payment_id, { signedTransaction: signed_capture })
+payee_client.payments.capture(payment_id, { signed_transaction: signed_capture })
 
 loop do
   state = client.payments.get(payment_id)
   puts "  status: #{state[:status]}"
-  break if state[:status] == "captured"
-  raise "Capture failed: #{state[:failureCode]}" if state[:status] == "failed"
-
+  break if %w[captured partially_captured].include?(state[:status])
+  raise "Capture failed: #{state[:failure_code]}" if state[:status] == "failed"
   sleep 2
 end
 
-puts "\nDone. Payment captured successfully."
+puts "\nDone. Payment captured."
+
+# ----------------------------------------------------------------
+# Step 9 — Inspect transaction history (paginated)
+# ----------------------------------------------------------------
+
+txs_resp = client.payments.transactions(payment_id)
+txs_resp[:data].each do |tx|   # paginated — unwrap :data
+  puts "  #{tx[:operation]} #{tx[:status]} #{tx[:transaction_hash]}"
+end

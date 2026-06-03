@@ -1,3 +1,4 @@
+# GENERATED — DO NOT EDIT. Run `ruby gen/generate.rb` to regenerate.
 # frozen_string_literal: true
 
 module Rail0
