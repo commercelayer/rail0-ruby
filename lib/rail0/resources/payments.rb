@@ -150,18 +150,14 @@ module Rail0
 
       # Two-phase EIP-3009 refund flow.
       # Phase 1: call with only amount — returns a signing payload.
-      # Phase 2: call with amount + v, r, s — returns unsigned refund transaction.
+      # Phase 2: call with amount + signature — returns unsigned refund transaction.
       # @param rail0_id [String]
       # @param amount [String] Uint256String amount to refund.
-      # @param v [Integer, nil] Signature v component (phase 2 only).
-      # @param r [String, nil] Signature r component (phase 2 only).
-      # @param s [String, nil] Signature s component (phase 2 only).
+      # @param signature [String, nil] 0x-prefixed hex signature (phase 2 only).
       # @return [Hash]
-      def refund_prepare(rail0_id, amount:, v: nil, r: nil, s: nil)
+      def refund_prepare(rail0_id, amount:, signature: nil)
         params = { amount: amount }
-        params[:v] = v if v
-        params[:r] = r if r
-        params[:s] = s if s
+        params[:signature] = signature if signature
         @http.post("/payments/#{rail0_id}/refund/prepare", params)
       end
 
