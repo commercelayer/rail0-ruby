@@ -52,12 +52,12 @@ module Rail0
       keyword_init: true
     )
 
-    # Buyer-supplied payment parameters. Policy fields (authorization_expiry, refund_expiry, fee_bps,
-    # fee_receiver) are fixed API configuration applied server-side.
+    # Buyer-supplied payment parameters. Policy fields (authorization_expiry, refund_expiry) are
+    # fixed API configuration applied server-side.
     PaymentInput = Struct.new(
       :payer,   # Address — Buyer address. Funds are pulled from this address.
-      :payee,   # Address — Account wallet address (wallet_address from GET /accounts/{id}/payment-methods).
-      :token,   # Address — ERC-20 token address (token_address from GET /accounts/{id}/payment-methods).
+      :payee,   # Address — Account wallet address (wallet_address from GET /accounts/{id}/wallets).
+      :token,   # Address — ERC-20 token address (token_address from GET /accounts/{id}/wallets).
       :amount,  # Uint256String — Amount to pay (in token base units).
       keyword_init: true
     )
@@ -78,9 +78,12 @@ module Rail0
 
     # Parameters needed to create a payment intent.
     CreatePaymentRequest = Struct.new(
-      :payment,      # PaymentInput
       :chain_id,     # Integer — EVM chain ID of the target network.
       :mode,         # String — `authorize` — funds held in escrow, captured later. `charge` — one-shot: funds immediately distributed. The two modes use different EIP-3009 nonce prefixes; a signature for one cannot be reused for the other.
+      :amount,       # Uint256String — Amount to pay (in token base units).
+      :token,        # Address — ERC-20 token address.
+      :payer,        # Address — Buyer address. Funds are pulled from this address.
+      :payee,        # Address — Account wallet address.
       :description,  # String — Optional human-readable payment label visible to the payer (e.g. "Order #123 — Acme Store").
       :metadata,     # Hash — Arbitrary key-value data for custom reconciliation. Set at creation and immutable. Max 4 KB.
       keyword_init: true

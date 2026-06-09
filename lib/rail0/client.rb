@@ -10,7 +10,7 @@ module Rail0
   #
   #   client = Rail0::Client.new(base_url: "https://api.rail0.xyz")
   #   resp   = client.auth.login(private_key: "0x...", domain: "api.rail0.xyz")
-  #   resp   = client.payments.create(payment: { payer: "0x...", payee: "0x...", token: "0x...", amount: "100000000" }, chain_id: 84532, mode: "authorize")
+  #   resp   = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x...", payer: "0x...", payee: "0x...")
   class Client
     # @return [Resources::Auth] SIWE authentication operations.
     attr_reader :auth

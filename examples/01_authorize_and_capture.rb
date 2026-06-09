@@ -53,15 +53,13 @@ payee_client = Rail0::Client.new(
 # ----------------------------------------------------------------
 
 create_resp = client.payments.create(
-  payment: {
-    payer:  "0xBuyerAddress000000000000000000000000000000",
-    payee:  method[:address],
-    token:  method[:token_address],
-    amount: "100000000"  # 100 USDC (6 decimals)
-  },
-  chain_id: CHAIN_ID,
-  mode:     "authorize",
-  metadata: { order_id: "ORD-123", customer_ref: "CUST-456" }
+  chain_id:    CHAIN_ID,
+  mode:        "authorize",
+  amount:      "100000000",  # 100 USDC (6 decimals)
+  token:       method[:token_address],
+  payer:       "0xBuyerAddress000000000000000000000000000000",
+  payee:       method[:address],
+  metadata:    { order_id: "ORD-123", customer_ref: "CUST-456" }
 )
 
 payment_id      = create_resp[:rail0_id]

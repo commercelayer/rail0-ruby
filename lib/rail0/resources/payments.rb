@@ -26,7 +26,7 @@ module Rail0
       end
 
       # Create a payment intent. Returns the EIP-712 signingPayload for the payer to sign.
-      # @param params [Hash] payment (PaymentInput), chain_id, mode, metadata (optional)
+      # @param params [Hash] chain_id, mode, amount, token, payer, payee, description (optional), metadata (optional)
       # @return [Hash] rail0_id, config_hash, payment, chain_id, rail0_contract, signing_payload
       def create(params)
         @http.post("/payments", params)
