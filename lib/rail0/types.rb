@@ -62,20 +62,6 @@ module Rail0
       keyword_init: true
     )
 
-    # A single accepted payment method for a account: one (chain, token, wallet) combination.
-    PaymentMethod = Struct.new(
-      :id,              # Integer
-      :token_id,        # Integer
-      :chain_id,        # Integer
-      :chain_name,      # String
-      :token_address,   # Address — ERC-20 token contract address on the chain.
-      :token_symbol,    # String
-      :token_decimals,  # Integer
-      :wallet_address,  # Address — Account wallet address to use as `payee` in PaymentConfig.
-      :default,         # Boolean
-      keyword_init: true
-    )
-
     # Parameters needed to create a payment intent.
     CreatePaymentRequest = Struct.new(
       :chain_id,     # Integer — EVM chain ID of the target network.
@@ -270,6 +256,7 @@ module Rail0
       :chain_id,        # Integer
       :chain_name,      # String
       :chain_slug,      # String
+      :explorer_url,    # String, nil — block explorer base URL for the chain.
       keyword_init: true
     )
   end

@@ -60,13 +60,6 @@ module Rail0
         @http.delete("/accounts/#{account_id}/wallets/#{id}")
       end
 
-      # List accepted payment methods for an account.
-      # @param account_id [String] Account UUID.
-      # @return [Array<Hash>]
-      def payment_methods(account_id)
-        @http.get("/accounts/#{account_id}/payment-methods")
-      end
-
       private
 
       def build_query(**params)
