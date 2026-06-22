@@ -4,13 +4,14 @@ require_relative "resources/auth"
 require_relative "resources/chains"
 require_relative "resources/payments"
 require_relative "resources/tokens"
+require_relative "resources/wallets"
 
 module Rail0
   # Entry point for the RAIL0 SDK.
   #
   #   client = Rail0::Client.new(base_url: "https://api.rail0.xyz")
   #   resp   = client.auth.login(private_key: "0x...", domain: "api.rail0.xyz")
-  #   resp   = client.payments.create(payment: { payer: "0x...", payee: "0x...", token: "0x...", amount: "100000000" }, chain_id: 84532, mode: "authorize")
+  #   resp   = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x...", payer: "0x...", payee: "0x...")
   class Client
     # @return [Resources::Auth] SIWE authentication operations.
     attr_reader :auth
@@ -22,6 +23,8 @@ module Rail0
     attr_reader :payments
     # @return [Resources::Tokens] Token listing operations.
     attr_reader :tokens
+    # @return [Resources::Wallets] Wallet token operations.
+    attr_reader :wallets
 
     # @param base_url [String] Base URL of the RAIL0 API, e.g. "https://api.rail0.xyz".
     # @param headers [Hash] Default headers merged into every request.
@@ -39,6 +42,7 @@ module Rail0
       @chains   = Resources::Chains.new(http)
       @payments = Resources::Payments.new(http)
       @tokens   = Resources::Tokens.new(http)
+      @wallets  = Resources::Wallets.new(http)
     end
   end
 end

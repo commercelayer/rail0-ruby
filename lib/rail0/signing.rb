@@ -18,9 +18,9 @@ module Rail0
   #
   # ## Typical usage (simplest path)
   #
-  #   resp = client.payments.create(payment: { payer:, payee:, token:, amount: }, chainId:, mode: "authorize")
-  #   sig  = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signingPayload])
-  #   client.payments.sign(resp[:paymentId], { signature: sig.to_hex })
+  #   resp = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x...", payer: "0x...", payee: "0x...")
+  #   sig  = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signing_payload])
+  #   client.payments.sign(resp[:rail0_id], { signature: sig.to_hex })
   #
   module Signing
     # EIP-712 domain of the ERC-20 token (NOT the RAIL0 contract).
@@ -175,11 +175,11 @@ module Rail0
     # reconstruction.
     #
     #   resp = client.payments.create(
-    #     payment: { payer: "0x...", payee: "0x...", token: "0x...", amount: "100000000" },
-    #     chainId: 84532, mode: "authorize"
+    #     chain_id: 84532, mode: "authorize",
+    #     amount: "100000000", token: "0x...", payer: "0x...", payee: "0x..."
     #   )
-    #   sig = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signingPayload])
-    #   client.payments.sign(resp[:paymentId], { signature: sig.to_hex })
+    #   sig = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signing_payload])
+    #   client.payments.sign(resp[:rail0_id], { signature: sig.to_hex })
     #
     # @param private_key [String] Payer's private key (0x-prefixed hex).
     # @param signing_payload [Hash] The signingPayload hash from the create response.
@@ -239,7 +239,7 @@ module Rail0
     # `resp[:signingPayload][:message][:nonce]`. Prefer {sign_payload} when the full
     # signingPayload is available.
     #
-    #   resp  = client.payments.create(payment: { payer:, payee:, token:, amount: }, chainId:, mode: "authorize")
+    #   resp  = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x...", payer: "0x...", payee: "0x...")
     #   nonce = resp[:signingPayload][:message][:nonce]
     #   sig   = Rail0::Signing.sign_authorize(Rail0::Signing::SignPaymentParams.new(
     #     private_key:      "0x...",

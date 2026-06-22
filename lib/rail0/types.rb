@@ -52,35 +52,24 @@ module Rail0
       keyword_init: true
     )
 
-    # Buyer-supplied payment parameters. Policy fields (authorization_expiry, refund_expiry, fee_bps,
-    # fee_receiver) are fixed API configuration applied server-side.
+    # Buyer-supplied payment parameters. Policy fields (authorization_expiry, refund_expiry) are
+    # fixed API configuration applied server-side.
     PaymentInput = Struct.new(
       :payer,   # Address — Buyer address. Funds are pulled from this address.
-      :payee,   # Address — Account wallet address (wallet_address from GET /accounts/{id}/payment-methods).
-      :token,   # Address — ERC-20 token address (token_address from GET /accounts/{id}/payment-methods).
+      :payee,   # Address — Account wallet address (wallet_address from GET /accounts/{id}/wallets).
+      :token,   # Address — ERC-20 token address (token_address from GET /accounts/{id}/wallets).
       :amount,  # Uint256String — Amount to pay (in token base units).
-      keyword_init: true
-    )
-
-    # A single accepted payment method for a account: one (chain, token, wallet) combination.
-    PaymentMethod = Struct.new(
-      :id,              # Integer
-      :token_id,        # Integer
-      :chain_id,        # Integer
-      :chain_name,      # String
-      :token_address,   # Address — ERC-20 token contract address on the chain.
-      :token_symbol,    # String
-      :token_decimals,  # Integer
-      :wallet_address,  # Address — Account wallet address to use as `payee` in PaymentConfig.
-      :default,         # Boolean
       keyword_init: true
     )
 
     # Parameters needed to create a payment intent.
     CreatePaymentRequest = Struct.new(
-      :payment,      # PaymentInput
       :chain_id,     # Integer — EVM chain ID of the target network.
       :mode,         # String — `authorize` — funds held in escrow, captured later. `charge` — one-shot: funds immediately distributed. The two modes use different EIP-3009 nonce prefixes; a signature for one cannot be reused for the other.
+      :amount,       # Uint256String — Amount to pay (in token base units).
+      :token,        # Address — ERC-20 token address.
+      :payer,        # Address — Buyer address. Funds are pulled from this address.
+      :payee,        # Address — Account wallet address.
       :description,  # String — Optional human-readable payment label visible to the payer (e.g. "Order #123 — Acme Store").
       :metadata,     # Hash — Arbitrary key-value data for custom reconciliation. Set at creation and immutable. Max 4 KB.
       keyword_init: true
@@ -267,6 +256,7 @@ module Rail0
       :chain_id,        # Integer
       :chain_name,      # String
       :chain_slug,      # String
+      :explorer_url,    # String, nil — block explorer base URL for the chain.
       keyword_init: true
     )
   end

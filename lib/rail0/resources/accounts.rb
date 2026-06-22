@@ -1,4 +1,3 @@
-# GENERATED — DO NOT EDIT. Run `ruby gen/generate.rb` to regenerate.
 # frozen_string_literal: true
 
 require "cgi"
@@ -10,34 +9,55 @@ module Rail0
         @http = http
       end
 
-      # Fetch accepted payment methods for an account.
+      # List wallets for an account.
       # @param account_id [String] Account UUID.
-      # @return [Array<Hash>]
-      def payment_methods(account_id)
-        @http.get("/accounts/#{account_id}/payment-methods")
-      end
-
-      # List wallet tokens for an account. Public — no JWT required.
-      # @param account_id [String] Account UUID.
-      # @param chain_id [Integer, nil] Filter by EVM chain ID.
-      # @param chain_slug [String, nil] Filter by chain slug (e.g. "base").
-      # @param token_symbol [String, nil] Filter by token symbol (e.g. "USDC").
       # @param active [Boolean, nil] Filter by active flag; omit to return all.
       # @param page [Integer] Page number (1-based, default 1).
       # @param per_page [Integer] Items per page (default 20, max 100).
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
-      def wallets(account_id, chain_id: nil, chain_slug: nil, token_symbol: nil, active: nil, page: nil, per_page: nil)
-        query = build_query(chain_id: chain_id, chain_slug: chain_slug, token_symbol: token_symbol,
-                            active: active, page: page, per_page: per_page)
+      def wallets(account_id, active: nil, page: nil, per_page: nil)
+        query = build_query(active: active, page: page, per_page: per_page)
         @http.get("/accounts/#{account_id}/wallets#{query}")
       end
 
-      # Fetch a single wallet token by id. Public — no JWT required.
+      # Fetch a single wallet by id.
       # @param account_id [String] Account UUID.
-      # @param id [String] Wallet token UUID.
+      # @param id [String] Wallet UUID.
       # @return [Hash]
       def wallet(account_id, id)
         @http.get("/accounts/#{account_id}/wallets/#{id}")
+      end
+
+      # Add a wallet to the account.
+      # @param account_id [String] Account UUID.
+      # @param address [String] EVM wallet address (0x, 42 chars).
+      # @param label [String, nil] Human-readable label.
+      # @return [Hash]
+      def create_wallet(account_id, address:, label: nil)
+        body = { address: address }
+        body[:label] = label unless label.nil?
+        @http.post("/accounts/#{account_id}/wallets", body)
+      end
+
+      # Update a wallet label or active status.
+      # @param account_id [String] Account UUID.
+      # @param id [String] Wallet UUID.
+      # @param label [String, nil] New label.
+      # @param active [Boolean, nil] New active status.
+      # @return [Hash]
+      def update_wallet(account_id, id, label: nil, active: nil)
+        body = {}
+        body[:label]  = label  unless label.nil?
+        body[:active] = active unless active.nil?
+        @http.patch("/accounts/#{account_id}/wallets/#{id}", body)
+      end
+
+      # Soft-delete (deactivate) a wallet.
+      # @param account_id [String] Account UUID.
+      # @param id [String] Wallet UUID.
+      # @return [nil]
+      def delete_wallet(account_id, id)
+        @http.delete("/accounts/#{account_id}/wallets/#{id}")
       end
 
       private

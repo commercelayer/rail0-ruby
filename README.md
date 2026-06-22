@@ -29,52 +29,57 @@ gem 'eth', '~> 0.5'
 ```ruby
 require 'rail0'
 
-client = Rail0::Client.new(base_url: 'https://api.rail0.xyz')
+client = Rail0::Client.new(
+  base_url: 'https://api.rail0.xyz',
+  headers:  { 'Authorization' => 'Bearer <jwt>' }
+)
 
-# Step 1 — discover payment methods
-methods = client.accounts.payment_methods(1)
-usdc = methods.find { |m| m['tokenSymbol'] == 'USDC' }
+# Step 1 — list wallets for an account
+wallets = client.accounts.wallets('acct_abc123')
+wallet = wallets.first
 
-# Step 2 — payer creates payment intent
+# Step 2 — pick a token accepted by that wallet
+tokens = client.wallets.tokens(wallet['id'])
+usdc = tokens.find { |t| t['symbol'] == 'USDC' }
+
+# Step 3 — payer creates payment intent
 resp = client.payments.create(
-  payment: {
-    payer:  '0xBuyer...',
-    payee:  usdc['walletAddress'],
-    token:  usdc['tokenAddress'],
-    amount: '50000000',      # 50 USDC (6 decimals)
-  },
-  chain_id: usdc['chain_id'],
-  mode: 'authorize'
+  chain_id: usdc['blockchain']['chain_id'],
+  mode:     'authorize',
+  amount:   '50000000',      # 50 USDC (6 decimals)
+  payer:    '0xBuyer...',
+  payee:    wallet['address'],
+  token:    usdc['address']
 )
 payment_id = resp['rail0_id']
 
-# Step 3 — payer signs the EIP-3009 payload off-chain
+# Step 4 — payer signs the EIP-3009 payload off-chain
 require 'rail0/signing'
 sig = Rail0::Signing.sign_payload(
   '0x...',                                          # payer's private key
   resp['signingPayload'].transform_keys(&:to_sym)   # from create
 )
 
-# Step 4 — payer submits the signature (single 65-byte hex string)
+# Step 5 — payer submits the signature (single 65-byte hex string)
 client.payments.sign(payment_id, signature: sig.to_hex)
 
-# Step 5 — payee prepares the unsigned authorize tx
+# Step 6 — payee prepares the unsigned authorize tx
 tx = client.payments.authorize_prepare(payment_id)
 # tx['unsignedTransaction'] — RLP-encoded EIP-1559 tx, sign with payee's key
 
-# Step 6 — payee broadcasts the signed authorize tx (async, HTTP 202)
+# Step 7 — payee broadcasts the signed authorize tx (async, HTTP 202)
 signed_tx = sign_eip1559(tx['unsignedTransaction'])  # your signing logic
 result = client.payments.authorize(payment_id, signed_transaction: signed_tx)
 # result['status'] => "submitting"
 
-# Step 7 — poll until status leaves "submitting"
+# Step 8 — poll until status leaves "submitting"
 loop do
   state = client.payments.get(payment_id)
   break unless state['status'] == 'submitting'
   sleep 2
 end
 
-# Step 8 — payee captures the funds
+# Step 9 — payee captures the funds
 capture_tx = client.payments.capture_prepare(payment_id, amount: '50000000')
 client.payments.capture(payment_id, signed_transaction: sign_eip1559(capture_tx['unsignedTransaction']))
 ```
@@ -150,15 +155,60 @@ client = Rail0::Client.new(
 
 ### `client.accounts`
 
-#### `.payment_methods(account_id)`
+#### `.wallets(account_id, active: nil, page: nil, per_page: nil)`
 
-Returns the active payment methods (chain + token + wallet) for an account.
+List wallets registered to an account.
 
 ```ruby
-methods = client.accounts.payment_methods(1)
-# [{ 'id', 'chainId', 'chainName', 'chainSlug', 'explorerUrl',
-#    'tokenAddress', 'tokenSymbol', 'tokenDecimals',
-#    'walletAddress', 'isDefault' }]
+wallets = client.accounts.wallets('acct_abc123')
+active  = client.accounts.wallets('acct_abc123', active: true)
+# [{ 'id', 'account_id', 'address', 'label', 'active', 'created_at', 'updated_at' }]
+```
+
+#### `.wallet(account_id, wallet_id)`
+
+Fetch a single wallet.
+
+```ruby
+wallet = client.accounts.wallet('acct_abc123', 'wlt_xyz789')
+```
+
+#### `.create_wallet(account_id, address:, label: nil)`
+
+Register a new EVM wallet address. Requires authentication.
+
+```ruby
+wallet = client.accounts.create_wallet('acct_abc123', address: '0xABC...', label: 'Treasury')
+```
+
+#### `.update_wallet(account_id, wallet_id, label: nil, active: nil)`
+
+Update label or active status. Requires authentication.
+
+```ruby
+wallet = client.accounts.update_wallet('acct_abc123', 'wlt_xyz789', active: false)
+```
+
+#### `.delete_wallet(account_id, wallet_id)`
+
+Remove a wallet from an account. Requires authentication.
+
+```ruby
+client.accounts.delete_wallet('acct_abc123', 'wlt_xyz789')
+```
+
+---
+
+### `client.wallets`
+
+#### `.tokens(wallet_id, symbol: nil, active: nil, page: nil, per_page: nil)`
+
+List the tokens accepted by a wallet. Each token includes a nested `blockchain` hash.
+
+```ruby
+tokens = client.wallets.tokens('wlt_xyz789')
+usdc   = client.wallets.tokens('wlt_xyz789', symbol: 'USDC').first
+# token: { 'id', 'symbol', 'address', 'decimals', 'active', 'blockchain' => { 'chain_id', 'name', 'slug', ... } }
 ```
 
 ---
@@ -178,7 +228,7 @@ state = client.payments.get(payment_id)
 # state['onChain']['refundableAmount']   → captured amount eligible for refund
 ```
 
-Possible status values: `pending`, `signed`, `submitting`, `submitted`, `authorized`, `captured`, `partially_captured`, `voided`, `released`, `approved`, `refunded`, `partially_refunded`, `failed`.
+Possible status values: `pending`, `signed`, `submitting`, `submitted`, `authorized`, `captured`, `partially_captured`, `voided`, `released`, `refunded`, `partially_refunded`, `failed`.
 
 #### `.create(params)`
 
@@ -186,9 +236,12 @@ Creates a payment intent and returns the EIP-712 signing payload for the payer.
 
 ```ruby
 resp = client.payments.create(
-  payment: { payer: '0x...', payee: '0x...', token: '0x...', amount: '50000000' },
-  chain_id: 84532,
-  mode: 'authorize'  # or 'charge'
+  chain_id: 5042002,
+  mode:     'authorize',  # or 'charge'
+  amount:   '50000000',
+  payer:    '0x...',
+  payee:    '0x...',
+  token:    '0x...'
 )
 # resp['rail0_id']        — bytes32 identifier
 # resp['signingPayload']  — EIP-712 payload for the payer to sign
@@ -297,7 +350,7 @@ sig = Rail0::Signing.sign_authorize(Rail0::Signing::SignPaymentParams.new(
   token_domain:     Rail0::Signing::TokenDomain.new(
     name:               'USD Coin',
     version:            '2',
-    chain_id:           84532,
+    chain_id:           5042002,
     verifying_contract: resp['payment']['token'],
   ),
 ))
@@ -353,7 +406,8 @@ lib/rail0/
   version.rb        Rail0::VERSION
 
   resources/
-    accounts.rb     Rail0::Resources::Accounts
+    accounts.rb     Rail0::Resources::Accounts  (wallet CRUD)
+    wallets.rb      Rail0::Resources::Wallets   (wallet tokens)
     payments.rb     Rail0::Resources::Payments
 ```
 

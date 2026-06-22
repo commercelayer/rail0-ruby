@@ -54,6 +54,14 @@ module Rail0
       request(:put, path, body)
     end
 
+    def patch(path, body = nil)
+      request(:patch, path, body)
+    end
+
+    def delete(path)
+      request(:delete, path)
+    end
+
     private
 
     def request(method, path, body = nil)
