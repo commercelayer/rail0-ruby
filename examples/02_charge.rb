@@ -1,106 +1,59 @@
 # One-shot payment: charge (authorize + capture in a single transaction)
 #
-# Funds go directly to the payee with no hold period.
-# Use this when the merchant can fulfil the order immediately.
+# Funds move to the payee immediately with no escrow window. Use this when the
+# merchant can fulfil the order right away.
 #
-# On-chain flow:
-#   payer  signs EIP-712 payload  → off-chain
-#   payer  PUT /payments/:id/sign → stores signature server-side
-#   payee  POST /charge/prepare   → receive unsigned tx
-#   payee  signs tx off-chain
-#   payee  POST /charge           → async broadcast (HTTP 202)
-#   (poll) GET /payments/:id      → wait for status "charged"
+#   payer creates (mode: "charge") → signs payload → deposits signature
+#   payee prepares → signs → broadcasts the charge tx
+#   (poll) waits for status "charged"
 
 require "rail0"
+require "rail0/signing"
 
-PAYER_KEY   = ENV.fetch("PAYER_PRIVATE_KEY")
-PAYEE_KEY   = ENV.fetch("PAYEE_PRIVATE_KEY")
-ACCOUNT_ID  = ENV.fetch("RAIL0_ACCOUNT_ID")
-CHAIN_ID    = 5042002  # Arc Testnet
+PAYER_KEY  = ENV.fetch("PAYER_PRIVATE_KEY")
+PAYEE_KEY  = ENV.fetch("PAYEE_PRIVATE_KEY")
+ACCOUNT_ID = ENV.fetch("RAIL0_ACCOUNT_ID")
+BUYER      = ENV.fetch("PAYER_ADDRESS")
 
-client = Rail0::Client.new(
-  base_url: "https://api.rail0.xyz",
-  logger:   Rail0::DEBUG_LOGGER
+client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEBUG_LOGGER)
+
+# ── Step 0 — discover a merchant USDC wallet (public) ─────────────────────────
+wallet  = client.payment_methods.list(account_id: ACCOUNT_ID)
+              .find { |w| w[:tokens].any? { |t| t[:token][:symbol] == "USDC" } }
+raise "no active USDC wallet" unless wallet
+
+token = wallet[:tokens].find { |t| t[:token][:symbol] == "USDC" }[:token]
+puts "Using #{token[:symbol]} on chain #{token[:chain_id]}"
+
+# ── Step 1 — payer creates the payment in charge mode ─────────────────────────
+payment = client.payments.create(
+  chain_id: token[:chain_id],
+  mode:     "charge",
+  amount:   "25000000",  # 25 USDC
+  token:    token[:address],
+  payer:    BUYER,
+  payee:    wallet[:address],
+  metadata: { order_id: "ORD-456" }
 )
+rail0_id = payment[:rail0_id]
+puts "Payment created: #{rail0_id}"
 
-# ----------------------------------------------------------------
-# Step 0 — Fetch accepted payment methods (public, paginated)
-# ----------------------------------------------------------------
+# ── Step 2 — payer signs the EIP-3009 payload and deposits the signature ──────
+sig = Rail0::Signing.sign_payload(PAYER_KEY, payment[:signing_payload])
+client.payments.sign(rail0_id, { signature: sig.to_hex })
 
-result  = client.accounts.wallets(ACCOUNT_ID, token_symbol: "USDC", active: true)
-wallets = result[:data]   # paginated — unwrap :data
-method  = wallets.first || raise("No active USDC wallet found")
+# ── Step 3 — payee prepares, signs, and broadcasts the charge tx ──────────────
+prep = client.payments.charge_prepare(rail0_id)
+raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYEE_KEY)
+client.payments.charge(rail0_id, { signed_transaction: raw })
+puts "Charge submitted (202). Polling…"
 
-puts "Using: #{method[:token_symbol]} on #{method[:chain_name]}"
-
-# ----------------------------------------------------------------
-# Step 1 — Authenticate the payee
-# ----------------------------------------------------------------
-
-auth_resp    = client.auth.login(private_key: PAYEE_KEY, domain: "api.rail0.xyz")
-payee_client = Rail0::Client.new(
-  base_url: "https://api.rail0.xyz",
-  headers:  { "Authorization" => "Bearer #{auth_resp[:token]}" }
-)
-
-# ----------------------------------------------------------------
-# Step 2 — Create payment intent in charge mode
-# ----------------------------------------------------------------
-
-create_resp = client.payments.create(
-  chain_id:    CHAIN_ID,
-  mode:        "charge",
-  amount:      "25000000",  # 25 USDC
-  token:       method[:token_address],
-  payer:       "0xBuyerAddress000000000000000000000000000000",
-  payee:       method[:address],
-  metadata:    { order_id: "ORD-456" }
-)
-
-payment_id      = create_resp[:rail0_id]
-signing_payload = create_resp[:signing_payload]
-
-puts "\nPayment created: #{payment_id}"
-
-# ----------------------------------------------------------------
-# Step 3 — Payer signs the EIP-712 payload off-chain
-# ----------------------------------------------------------------
-#
-#   signature = wallet.sign_typed_data(signing_payload)
-
-signature = "0x" + "ab" * 65  # placeholder
-
-client.payments.sign(payment_id, { signature: signature })
-puts "Signature stored."
-
-# ----------------------------------------------------------------
-# Step 4 — Payee prepares the charge transaction
-# ----------------------------------------------------------------
-
-prepare_resp = payee_client.payments.charge_prepare(payment_id)
-puts "\nUnsigned charge tx: #{prepare_resp[:unsigned_transaction][0, 20]}..."
-
-# ----------------------------------------------------------------
-# Step 5 — Payee signs and submits
-# ----------------------------------------------------------------
-#
-#   signed_tx = wallet.sign_transaction(prepare_resp[:unsigned_transaction])
-
-signed_tx = "0x02f8ab"  # placeholder
-
-payee_client.payments.charge(payment_id, { signed_transaction: signed_tx })
-puts "Charge submitted (202). Polling..."
-
-# ----------------------------------------------------------------
-# Step 6 — Poll until charged
-# ----------------------------------------------------------------
-
+# ── Step 4 — poll until charged ───────────────────────────────────────────────
 loop do
-  state = client.payments.get(payment_id)
+  state = client.payments.get(rail0_id)
   puts "  status: #{state[:status]}"
   break if state[:status] == "charged"
-  raise "Payment failed: #{state[:failure_code]} — #{state[:failure_message]}" if state[:status] == "failed"
+  raise "failed: #{state[:last_error_code]} — #{state[:last_error_message]}" if state[:status] == "failed"
   sleep 2
 end
-
-puts "\nDone. Payment charged successfully."
+puts "Done — payment charged."

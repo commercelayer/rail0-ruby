@@ -121,15 +121,14 @@ RSpec.describe Rail0::Signing do
 
   describe ".sign_authorize and .sign_charge" do
     let(:payment) do
+      # Flat, snake_case Payment record as returned by the gateway.
       {
-        payer:               TEST_ADDRESS,
-        payee:               "0xMerchant00000000000000000000000000000000",
-        token:               "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-        amount:              "100000000",
-        authorizationExpiry: 9_999_999_999,
-        refundExpiry:        9_999_999_999,
-        feeBps:              0,
-        feeReceiver:         "0x0000000000000000000000000000000000000000"
+        payer:                TEST_ADDRESS,
+        payee:                "0xMerchant00000000000000000000000000000000",
+        token:                "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        amount:               "100000000",
+        authorization_expiry: 9_999_999_999,
+        refund_expiry:        9_999_999_999
       }
     end
 
@@ -204,6 +203,46 @@ RSpec.describe Rail0::Signing do
 
       expect(sig).to be_a(Rail0::Signing::Eip3009Signature)
       expect(sig.to_hex).to match(/\A0x[0-9a-f]{130}\z/i)
+    end
+  end
+
+  # ================================================================
+  #  sign_transaction (EIP-1559 / type-2)
+  # ================================================================
+
+  describe ".sign_transaction" do
+    # Field-set the gateway returns as a prepare step's unsigned_transaction:
+    # numbers as JSON numbers, wei-scale values/fees as decimal strings.
+    UNSIGNED_TX = {
+      chain_id: 84532, nonce: 7, to: "0x1111111111111111111111111111111111111111",
+      value: "0", data: "0xa9059cbb0000000000000000000000000000000000000000000000000000000000000001",
+      gas_limit: 210_000, max_priority_fee_per_gas: "1000000000", max_fee_per_gas: "2500000000"
+    }.freeze
+
+    it "signs a JSON string and returns a 0x-prefixed type-2 raw tx" do
+      raw = Rail0::Signing.sign_transaction(UNSIGNED_TX.to_json, TEST_PRIVATE_KEY)
+      expect(raw).to start_with("0x02")
+    end
+
+    it "also accepts a pre-parsed Hash" do
+      raw = Rail0::Signing.sign_transaction(UNSIGNED_TX, TEST_PRIVATE_KEY)
+      expect(raw).to start_with("0x02")
+    end
+
+    it "recovers to the signer address and preserves the tx fields" do
+      raw = Rail0::Signing.sign_transaction(UNSIGNED_TX.to_json, TEST_PRIVATE_KEY)
+      decoded = Eth::Tx.decode(raw)
+      expect("0x#{decoded.sender}".downcase).to eq(TEST_ADDRESS.downcase)
+      expect(decoded.signer_nonce).to eq(7)
+      expect(decoded.max_priority_fee_per_gas).to eq(1_000_000_000)
+      expect(decoded.max_fee_per_gas).to eq(2_500_000_000)
+      expect(decoded.payload.unpack1("H*")).to start_with("a9059cbb")
+    end
+
+    it "is deterministic for the same input" do
+      a = Rail0::Signing.sign_transaction(UNSIGNED_TX.to_json, TEST_PRIVATE_KEY)
+      b = Rail0::Signing.sign_transaction(UNSIGNED_TX.to_json, TEST_PRIVATE_KEY)
+      expect(a).to eq(b)
     end
   end
 end

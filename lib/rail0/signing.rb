@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 begin
   require "eth"
 rescue LoadError
@@ -52,11 +54,11 @@ module Rail0
 
     # Parameters for signing an authorize or charge call.
     #
-    # The contract hardcodes `validAfter = 0` and `validBefore = payment[:authorizationExpiry]`;
+    # The contract hardcodes `validAfter = 0` and `validBefore = payment[:authorization_expiry]`;
     # these are not configurable by the caller.
     #
-    # `payment` must respond to `[:payer]`, `[:authorizationExpiry]`, and `[:amount]`
-    # (all present in both PaymentInput and PaymentConfig hashes).
+    # `payment` is a hash with the gateway's snake_case keys — it must carry
+    # `[:payer]`, `[:amount]`, and `[:authorization_expiry]` (a create response works directly).
     SignPaymentParams = Struct.new(
       :private_key, :payment, :nonce, :contract_address, :token_domain,
       keyword_init: true
@@ -168,11 +170,48 @@ module Rail0
     #  Public API
     # ================================================================
 
-    # Sign the EIP-3009 payload using the signingPayload returned by POST /payments.
+    # Build and sign the EIP-1559 (type-2) transaction described by a prepare
+    # step's +unsigned_transaction+ and return the signed raw transaction as a
+    # 0x-prefixed hex string, ready for the matching submit call.
     #
-    # This is the simplest entry point: pass the full signingPayload from the create response
+    # The gateway never holds private keys: it returns the transaction *fields*
+    # (chain id, nonce, to, value, data, gas, fees) and the client assembles and
+    # signs the transaction locally.
+    #
+    #   tx  = client.payments.authorize_prepare(rail0_id)
+    #   raw = Rail0::Signing.sign_transaction(tx[:unsigned_transaction], PAYER_PRIVATE_KEY)
+    #   client.payments.authorize(rail0_id, { signed_transaction: raw })
+    #
+    # @param unsigned_transaction [String, Hash] The +unsigned_transaction+ JSON
+    #   string from a prepare response (a pre-parsed Hash is also accepted).
+    # @param private_key [String] Signer's private key (0x-prefixed or raw hex).
+    # @return [String] 0x-prefixed RLP-encoded signed transaction.
+    def self.sign_transaction(unsigned_transaction, private_key)
+      f = unsigned_transaction.is_a?(String) ? JSON.parse(unsigned_transaction) : unsigned_transaction
+      f = f.transform_keys(&:to_s)
+
+      tx = Eth::Tx.new(
+        chain_id:     Integer(f.fetch("chain_id")),
+        nonce:        Integer(f.fetch("nonce")),
+        priority_fee: Integer(f.fetch("max_priority_fee_per_gas")),
+        max_gas_fee:  Integer(f.fetch("max_fee_per_gas")),
+        gas_limit:    Integer(f.fetch("gas_limit")),
+        to:           f.fetch("to"),
+        value:        Integer(f["value"] || 0),
+        data:         f["data"].to_s
+      )
+
+      key_hex = private_key.start_with?("0x") ? private_key[2..] : private_key
+      tx.sign(Eth::Key.new(priv: key_hex))
+      "0x#{tx.hex}"
+    end
+
+    # Sign the EIP-3009 payload using the signing_payload returned by POST /payments.
+    #
+    # This is the simplest entry point: pass the full signing_payload from the create response
     # and a private key — all fields are read directly from the payload without any manual
-    # reconstruction.
+    # reconstruction. (The payload's inner domain/message keep EIP-712 camelCase — chainId,
+    # verifyingContract, validAfter, validBefore — which this reads directly.)
     #
     #   resp = client.payments.create(
     #     chain_id: 84532, mode: "authorize",
@@ -235,20 +274,23 @@ module Rail0
 
     # Sign the EIP-3009 payload required by an authorize call.
     #
-    # The nonce encodes the RAIL0.AUTHORIZE prefix server-side; pass it from
-    # `resp[:signingPayload][:message][:nonce]`. Prefer {sign_payload} when the full
-    # signingPayload is available.
+    # Lower-level than {sign_payload}: the caller supplies an explicit
+    # {SignPaymentParams}. `payment` is a hash with the gateway's snake_case keys
+    # (`:payer`, `:amount`, `:authorization_expiry`). The nonce encodes the
+    # RAIL0.AUTHORIZE prefix server-side; pass it from the create response's
+    # signing payload. Prefer {sign_payload} when the full payload is available.
     #
     #   resp  = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x...", payer: "0x...", payee: "0x...")
-    #   nonce = resp[:signingPayload][:message][:nonce]
     #   sig   = Rail0::Signing.sign_authorize(Rail0::Signing::SignPaymentParams.new(
     #     private_key:      "0x...",
-    #     payment:          resp[:payment],
-    #     nonce:            nonce,
-    #     contract_address: resp[:rail0Contract],
-    #     token_domain:     Rail0::Signing::TokenDomain.new(**resp[:signingPayload][:domain].transform_keys { |k| k.to_s.gsub(/([A-Z])/) { "_#{$1.downcase}" }.to_sym })
+    #     payment:          resp,                                   # flat Payment record
+    #     nonce:            resp[:signing_payload][:message][:nonce],
+    #     contract_address: resp[:rail0_contract],
+    #     token_domain:     Rail0::Signing::TokenDomain.new(
+    #       name: "USD Coin", version: "2", chain_id: 84532, verifying_contract: resp[:token]
+    #     )
     #   ))
-    #   client.payments.sign(resp[:paymentId], { signature: sig.to_hex })
+    #   client.payments.sign(resp[:rail0_id], { signature: sig.to_hex })
     #
     # @param params [SignPaymentParams]
     # @return [Eip3009Signature]
@@ -259,7 +301,7 @@ module Rail0
         to:           params.contract_address,
         value:        params.payment[:amount].to_i,
         valid_after:  0,
-        valid_before: params.payment[:authorizationExpiry],
+        valid_before: params.payment[:authorization_expiry],
         nonce:        params.nonce
       )
     end
@@ -269,7 +311,7 @@ module Rail0
     # Identical signing logic to {sign_authorize}; the operation distinction is encoded in
     # the nonce prefix by the server (RAIL0.CHARGE vs RAIL0.AUTHORIZE). A charge signature
     # cannot be reused for authorize and vice versa. Prefer {sign_payload} when the full
-    # signingPayload is available.
+    # signing payload is available.
     #
     # @param params [SignPaymentParams]
     # @return [Eip3009Signature]
@@ -280,7 +322,7 @@ module Rail0
         to:           params.contract_address,
         value:        params.payment[:amount].to_i,
         valid_after:  0,
-        valid_before: params.payment[:authorizationExpiry],
+        valid_before: params.payment[:authorization_expiry],
         nonce:        params.nonce
       )
     end
