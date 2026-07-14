@@ -288,6 +288,21 @@ RSpec.describe Rail0::Client do
     end
   end
 
+  # ── Disputes (account-level) ───────────────────────────────────────────────
+
+  describe "disputes.list" do
+    it "returns a paginated envelope with the embedded payment and forwards status" do
+      dispute = DISPUTE.merge(status: "closed", closed_by: "payee",
+                              payment: PAYMENT_DETAIL.merge(status: "refunded"))
+      stub = stub_list("/disputes?status=closed", [dispute])
+      result = client.disputes.list(status: "closed")
+      expect(stub).to have_been_requested
+      row = result[:data].first
+      expect(row[:status]).to eq("closed")
+      expect(row[:payment][:rail0_id]).to eq(PAYMENT_ID)
+    end
+  end
+
   # ── Payments: lifecycle operations ─────────────────────────────────────────
 
   describe "lifecycle prepare/submit wrappers" do

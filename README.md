@@ -187,10 +187,15 @@ client.payments.get(id)
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
 client.payments.transactions(id, operation: "capture")
 client.payments.sign(id, { signature: "0x…" })
-client.payments.disputes(id, status: "open")
+client.payments.disputes(id, status: "open")   # one payment's dispute history
+
+# Account-level: every dispute (open AND closed) across your payments, each with
+# the parent payment embedded. A closed dispute drops out of the payments
+# `disputed` filter (current-state) but still appears here.
+client.disputes.list(status: "closed", sort: "-opened_at")
 ```
 
-`list`, `transactions`, and `disputes` return a paginated
+`payments.list`/`transactions`/`disputes` and `disputes.list` return a paginated
 `{ data:, meta: { page:, per_page:, total: } }` envelope.
 
 ### Refund (two-phase EIP-3009)

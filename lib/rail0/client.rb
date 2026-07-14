@@ -6,6 +6,7 @@ require_relative "resources/health"
 require_relative "resources/payment_methods"
 require_relative "resources/wallets"
 require_relative "resources/payments"
+require_relative "resources/disputes"
 require_relative "resources/webhooks"
 
 module Rail0
@@ -33,6 +34,8 @@ module Rail0
     attr_reader :wallets
     # @return [Resources::Payments] Payment lifecycle operations.
     attr_reader :payments
+    # @return [Resources::Disputes] Account-level dispute list (JWT).
+    attr_reader :disputes
     # @return [Resources::Webhooks] Webhook subscription management (JWT).
     attr_reader :webhooks
 
@@ -54,6 +57,7 @@ module Rail0
       @payment_methods = Resources::PaymentMethods.new(http)
       @wallets         = Resources::Wallets.new(http)
       @payments        = Resources::Payments.new(http)
+      @disputes        = Resources::Disputes.new(http)
       @webhooks        = Resources::Webhooks.new(http)
     end
   end
