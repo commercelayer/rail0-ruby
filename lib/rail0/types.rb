@@ -230,6 +230,7 @@ module Rail0
       :error_reason,
       :status,            # String
       :created_at,        # String
+      :payload,           # The JSON request body POSTed to the callback URL (decompressed).
       keyword_init: true
     )
 
