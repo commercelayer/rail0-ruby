@@ -1,12 +1,12 @@
 # rail0-ruby
 
-Ruby SDK for the [RAIL0](https://github.com/commercelayer/rail0) stablecoin payment API.
+Ruby SDK for the [RAIL0](https://github.com/commercelayer/rail0) stablecoin payment gateway.
 
 RAIL0 is an immutable smart contract that brings the authorize → capture → refund
 lifecycle of card networks to stablecoin (USDC / EIP-3009) payments — no
-intermediaries, no protocol fees, no permission required. This SDK wraps the REST
-API that sits in front of the contract, covering the full payment lifecycle plus
-account, wallet, catalog, and webhook management. It mirrors the
+intermediaries, no protocol fees, no permission required. This SDK is a REST client
+for the RAIL0 gateway that sits in front of the contract, covering the full payment
+lifecycle plus account, wallet, catalog, and webhook management. It mirrors the
 [rail0-go](https://github.com/commercelayer/rail0-go) and
 [rail0-ts](https://github.com/commercelayer/rail0-ts) SDKs.
 
