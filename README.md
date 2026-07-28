@@ -256,6 +256,33 @@ client.webhooks.event_callbacks(id, status: "failed")
 client.webhooks.delete(id)           # 204
 ```
 
+## Analytics (JWT)
+
+Account-scoped: the numbers are the merchant's own, so a buyer's account-less token is
+refused with `account_required`.
+
+```ruby
+client.analytics.summary(status: "captured")
+# => { count: 42, disputed_count: 1 }
+
+# Volume needs BOTH token and chain_id — amounts in different tokens (or the same symbol
+# on different chains) are different units, and summing them would produce a number that
+# looks meaningful and isn't.
+client.analytics.summary(token: usdc, chain_id: 84_532)
+# => { count: 12, disputed_count: 0, volume: { token: "0x…", chain_id: 84532, total: "12000000" } }
+
+client.analytics.timeseries(interval: "day", from: "2026-07-01T00:00:00Z")
+# => [{ bucket: "2026-07-01", count: 3 }, …]  oldest first
+
+client.analytics.breakdown(by: "chain")
+# => [{ chain_id: 84532, count: 9 }, …]   by: token | chain | mode | status
+```
+
+All three take the same filters — `mode`, `status`, `token`, `chain_id`, `from`, `to` — so
+the same question can be asked at three resolutions: one total, a series over time, a split
+by dimension. Token and chain rows carry per-token volume; mode and status rows are counts
+only, for the reason above.
+
 ## Signing helpers (`Rail0::Signing`)
 
 Requires the `eth` gem. No private key ever leaves your process.
@@ -291,17 +318,43 @@ client = Rail0::Client.new(
 
 ## Error handling
 
-Non-2xx responses raise `Rail0::ApiError`:
+Non-2xx responses raise `Rail0::ApiError`, carrying the gateway's code/title/detail
+triple:
 
 ```ruby
 begin
   client.payments.capture(rail0_id, { signed_transaction: raw })
 rescue Rail0::ApiError => e
-  e.status   # 422
-  e.error    # "not_capturable"  (machine-readable code)
-  e.message  # human-readable description
+  e.status  # 422
+  e.error   # "insufficient_token_balance" — branch on this, and only this
+  e.title   # "Not enough balance" — a heading
+  e.detail  # a sentence you can show a user verbatim (also e.message)
+  e.hint    # this SDK's own extra advice, nil when it has none
 end
 ```
+
+**`error` is the only field to branch on.** It is the specific condition, read from the
+gateway's `code` and falling back to the older `error` sub-code and then to `status` (the
+wider family), so an older gateway still yields the most specific value it sent.
+
+`title` and `detail` come from the gateway's error catalogue, so the same condition always
+reads the same way whichever endpoint surfaced it; `detail` is written to be shown to a
+user as-is.
+
+`hint` (or `Rail0.describe_error(code)`) is this SDK's own advice — a *supplement* to
+`detail`, present only for codes with a next step worth adding. The codes span four
+families, and the last two are the ones most requests actually hit, neither raised by
+RAIL0 itself:
+
+| Family | Examples |
+| --- | --- |
+| Request & state guards | `not_capturable`, `amount_exceeds_refundable`, `not_the_payee` |
+| RAIL0 custom errors | `not_payee`, `already_captured`, `refund_expired` |
+| Token reverts | `insufficient_token_balance`, `invalid_token_signature`, `authorization_already_used` |
+| Broadcast rejections | `insufficient_gas_funds`, `nonce_too_low`, `replacement_underpriced` |
+
+A failed transaction carries the same triple as `error_code`, `error_title` and
+`error_detail`, whether it reverted on-chain or was refused before broadcast.
 
 ## Configuration
 
@@ -326,7 +379,8 @@ gen/generate.rb        regenerates lib/rail0/types.rb from the gateway OpenAPI s
 lib/rail0/
   client.rb            Rail0::Client — entry point
   http_client.rb       internal HTTP client (Net::HTTP, retry, pagination, logging)
-  api_error.rb         Rail0::ApiError
+  api_error.rb         Rail0::ApiError (code/title/detail + #hint)
+  error_hints.rb       Rail0.describe_error — per-code next steps, shared with the other SDKs
   signing.rb           EIP-3009 + EIP-1559 signing (requires 'eth')
   stablecoins.rb       stablecoin address registry
   types.rb             generated Struct docs of the gateway schema (reference only)
@@ -340,6 +394,7 @@ lib/rail0/
     wallets.rb         account-scoped wallet management (JWT)
     payments.rb        payment lifecycle + disputes
     webhooks.rb        webhook subscription management (JWT)
+    analytics.rb       account-scoped payment analytics (JWT)
     query.rb           shared query-string helper
 ```
 

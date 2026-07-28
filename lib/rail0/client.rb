@@ -8,6 +8,7 @@ require_relative "resources/wallets"
 require_relative "resources/payments"
 require_relative "resources/disputes"
 require_relative "resources/webhooks"
+require_relative "resources/analytics"
 
 module Rail0
   # Entry point for the RAIL0 SDK.
@@ -38,6 +39,8 @@ module Rail0
     attr_reader :disputes
     # @return [Resources::Webhooks] Webhook subscription management (JWT).
     attr_reader :webhooks
+    # @return [Resources::Analytics] Account-scoped payment analytics (JWT).
+    attr_reader :analytics
 
     # @param base_url [String] Base URL of the RAIL0 API, e.g. "https://api.rail0.xyz".
     # @param headers [Hash] Default headers merged into every request (e.g. Authorization).
@@ -59,6 +62,7 @@ module Rail0
       @payments        = Resources::Payments.new(http)
       @disputes        = Resources::Disputes.new(http)
       @webhooks        = Resources::Webhooks.new(http)
+      @analytics       = Resources::Analytics.new(http)
     end
   end
 end
