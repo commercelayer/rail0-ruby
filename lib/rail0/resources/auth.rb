@@ -14,14 +14,17 @@ module Rail0
     #   auth = client.auth.login(private_key: "0x...", domain: "api.rail0.xyz")
     #   client = Rail0::Client.new(base_url: BASE, headers: { "Authorization" => "Bearer #{auth[:token]}" })
     class Auth
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # Fetch a single-use SIWE nonce from the API (POST /auth/nonces).
       # @return [Hash] { nonce:, expires_at: }
       def nonce
-        @http.post("/auth/nonces", {})
+        http.post("/auth/nonces", {})
       end
 
       # Submit a pre-built SIWE message and its signature, returning a JWT.
@@ -29,7 +32,7 @@ module Rail0
       # @param signature [String] 0x-prefixed hex signature.
       # @return [Hash] { token:, address:, account_id:, name:, expires_at: }
       def verify(message:, signature:)
-        @http.post("/auth", { message: message, signature: signature })
+        http.post("/auth", { message: message, signature: signature })
       end
 
       # Perform the full SIWE authentication flow:
@@ -69,16 +72,19 @@ module Rail0
 
       private
 
-      # Lazily load the optional signing dependencies, raising a helpful error if
-      # they are absent (they are not required for {nonce}/{verify} or the rest of
-      # the SDK, so `require "rail0"` never pulls them in).
       def ensure_signing_deps!
+        original_verbose = $VERBOSE
+        $VERBOSE = nil
         require "eth"
         require "siwe"
-      rescue LoadError
-        raise LoadError,
+        Siwe::Parser  # force the autoloaded parser/message files to load now, while warnings are muted
+        Siwe::Message
+      rescue LoadError => e
+        raise e,
           "client.auth.login requires the 'eth' and 'siwe-rb' gems. " \
           "Add them to your Gemfile: gem 'eth', '~> 0.5'; gem 'siwe-rb', '~> 0.2'"
+      ensure
+        $VERBOSE = original_verbose
       end
 
       def build_eth_key(private_key)
@@ -86,8 +92,6 @@ module Rail0
         Eth::Key.new(priv: hex)
       end
 
-      # EIP-191 personal_sign: sign "\x19Ethereum Signed Message:\n<len><message>".
-      # Returns a 0x-prefixed 65-byte hex string (r ++ s ++ v).
       def personal_sign(key, message)
         prefixed  = "\x19Ethereum Signed Message:\n#{message.bytesize}#{message}"
         digest    = Eth::Util.keccak256(prefixed)

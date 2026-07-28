@@ -50,4 +50,16 @@ RSpec.describe Rail0::Stablecoins do
       )
     end
   end
+
+  describe "StablecoinInfo#bridged" do
+    it "is true for a known bridge-wrapped token" do
+      info = Rail0::Stablecoins.chain_info("base").tokens["USDbC"]
+      expect(info.bridged).to be true
+    end
+
+    it "is falsy for a non-bridged token" do
+      info = Rail0::Stablecoins.chain_info("base").tokens["USDC"]
+      expect(info.bridged).to be_falsy
+    end
+  end
 end

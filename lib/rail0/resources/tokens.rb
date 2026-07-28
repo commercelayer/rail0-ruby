@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "query"
+require "query"
 
 module Rail0
   module Resources
@@ -8,8 +8,11 @@ module Rail0
     class Tokens
       include Query
 
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # List active tokens, optionally filtered by chain and/or symbol.
@@ -18,7 +21,7 @@ module Rail0
       # @return [Array<Hash>] chain_id, symbol, address, decimals
       def list(chain_id: nil, symbol: nil)
         chain_id = nil if chain_id == 0
-        @http.get("/tokens#{build_query(chain_id: chain_id, symbol: symbol)}")
+        http.get("/tokens#{build_query(chain_id: chain_id, symbol: symbol)}")
       end
     end
   end

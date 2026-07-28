@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "query"
+require "query"
 
 module Rail0
   module Resources
@@ -18,8 +18,11 @@ module Rail0
       # Operations accepted by the prepare/submit endpoints.
       OPERATIONS = %w[authorize capture charge void release refund].freeze
 
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # List payments for the authenticated wallet (requires JWT). Returns
@@ -48,7 +51,7 @@ module Rail0
                             min_amount: min_amount, max_amount: max_amount,
                             created_from: created_from, created_to: created_to,
                             sort: sort, page: page, per_page: per_page)
-        @http.get_list("/payments#{query}")
+        http.get_list("/payments#{query}")
       end
 
       # Create a payment. Returns the record — when still unsigned it embeds the
@@ -69,14 +72,14 @@ module Rail0
       def create(params = nil, idempotency_key: nil, **fields)
         body    = params || fields
         headers = idempotency_key ? { "Idempotency-Key" => idempotency_key } : {}
-        @http.post("/payments", body, headers: headers)
+        http.post("/payments", body, headers: headers)
       end
 
       # Fetch current payment state (DB status + live on-chain amounts + transactions).
       # @param id [String] Payment UUID or rail0_id.
       # @return [Hash]
       def get(id)
-        @http.get("/payments/#{id}")
+        http.get("/payments/#{id}")
       end
 
       # List on-chain transactions for a payment.
@@ -89,7 +92,7 @@ module Rail0
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def transactions(id, operation: nil, status: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(operation: operation, status: status, sort: sort, page: page, per_page: per_page)
-        @http.get_list("/payments/#{id}/transactions#{query}")
+        http.get_list("/payments/#{id}/transactions#{query}")
       end
 
       # Submit the payer's EIP-712 signature (PUT /payments/{id}/sign).
@@ -97,7 +100,7 @@ module Rail0
       # @param params [Hash] { signature: "0x…" } (65-byte 0x-prefixed hex).
       # @return [Hash]
       def sign(id, params)
-        @http.put("/payments/#{id}/sign", params)
+        http.put("/payments/#{id}/sign", params)
       end
 
       # List a payment's dispute open/close history.
@@ -109,10 +112,8 @@ module Rail0
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def disputes(id, status: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(status: status, sort: sort, page: page, per_page: per_page)
-        @http.get_list("/payments/#{id}/disputes#{query}")
+        http.get_list("/payments/#{id}/disputes#{query}")
       end
-
-      # ── Generic prepare / submit ─────────────────────────────────────────────
 
       # Build the unsigned transaction for an operation
       # (POST /payments/{id}/{op}/prepare). +body+ carries operation-specific
@@ -124,7 +125,7 @@ module Rail0
       # @param body [Hash, nil] Operation-specific fields.
       # @return [Hash]
       def prepare(id, operation, body = nil)
-        @http.post("/payments/#{id}/#{operation}/prepare", body)
+        http.post("/payments/#{id}/#{operation}/prepare", body)
       end
 
       # Broadcast a signed transaction for an operation (POST /payments/{id}/{op}); HTTP 202.
@@ -133,7 +134,7 @@ module Rail0
       # @param params [Hash] { signed_transaction: "0x…" }.
       # @return [Hash]
       def submit(id, operation, params)
-        @http.post("/payments/#{id}/#{operation}", params)
+        http.post("/payments/#{id}/#{operation}", params)
       end
 
       # Record a transaction the caller broadcast themselves (MetaMask/wallet flow)
@@ -143,10 +144,8 @@ module Rail0
       # @param params [Hash] { transaction_hash: "0x…" }.
       # @return [Hash]
       def submit_by_hash(id, operation, params)
-        @http.post("/payments/#{id}/#{operation}/submitted", params)
+        http.post("/payments/#{id}/#{operation}/submitted", params)
       end
-
-      # ── Per-operation convenience wrappers ───────────────────────────────────
 
       # Phase 1 — build the unsigned authorize() transaction (escrow hold).
       def authorize_prepare(id)
@@ -220,13 +219,6 @@ module Rail0
         submit(id, "refund", params)
       end
 
-      # ── Disputes (payer-driven, signal-only) ─────────────────────────────────
-      #
-      # Disputes follow the same prepare → submit lifecycle, but are payer-driven
-      # and authorized on-chain (no JWT): prepare returns the unsigned tx, the payer
-      # signs and submits the signed raw tx, and the on-chain event flips the
-      # payment's +disputed+ flag.
-
       # Phase 1 — build the unsigned dispute() transaction (payer only).
       # @param id [String] Payment UUID or rail0_id.
       # @param reason [String, nil] Optional bytes32 code (0x…); defaults to zero server-side.
@@ -240,7 +232,7 @@ module Rail0
       # @param params [Hash] { signed_transaction: "0x…" }.
       # @return [Hash]
       def dispute(id, params)
-        @http.post("/payments/#{id}/dispute", params)
+        http.post("/payments/#{id}/dispute", params)
       end
 
       # Phase 1 — build the unsigned closeDispute() transaction (payer only).
@@ -256,16 +248,14 @@ module Rail0
       # @param params [Hash] { signed_transaction: "0x…" }.
       # @return [Hash]
       def close_dispute(id, params)
-        @http.post("/payments/#{id}/dispute/close", params)
+        http.post("/payments/#{id}/dispute/close", params)
       end
 
       private
 
-      # POST a dispute prepare with the optional {reason} body shared by the open
-      # and close prepares.
       def prepare_dispute(path, id, reason)
         body = reason ? { reason: reason } : {}
-        @http.post("/payments/#{id}/#{path}", body)
+        http.post("/payments/#{id}/#{path}", body)
       end
     end
   end

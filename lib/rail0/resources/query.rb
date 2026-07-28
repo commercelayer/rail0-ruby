@@ -10,8 +10,6 @@ module Rail0
     module Query
       private
 
-      # @param params [Hash] filter name => value (nil values are omitted).
-      # @return [String] "" when empty, otherwise "?k=v&k2=v2" (URL-escaped).
       def build_query(**params)
         pairs = params.compact.map { |k, v| "#{k}=#{CGI.escape(v.to_s)}" }
         pairs.empty? ? "" : "?#{pairs.join('&')}"

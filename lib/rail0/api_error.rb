@@ -1,11 +1,13 @@
+# frozen_string_literal: true
+
 module Rail0
   # Raised for non-2xx responses from the RAIL0 API.
   class ApiError < StandardError
-    # @return [Integer] HTTP status code (e.g. 404, 409, 422).
-    attr_reader :status
-
-    # @return [String] Machine-readable error identifier (e.g. "PaymentNotFound").
-    attr_reader :error
+    # @!attribute [r] status
+    #   @return [Integer] HTTP status code (e.g. 404, 409, 422).
+    # @!attribute [r] error
+    #   @return [String] Machine-readable error identifier (e.g. "PaymentNotFound").
+    attr_reader :status, :error
 
     # @param status [Integer]
     # @param error [String]
@@ -14,6 +16,7 @@ module Rail0
       super(message)
       @status = status
       @error = error
+      freeze
     end
   end
 end

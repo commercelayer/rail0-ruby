@@ -509,10 +509,12 @@ RSpec.describe Rail0::Client do
       expect(entries.first.status).to eq(200)
     end
 
-    it "DEBUG_LOGGER writes to stdout" do
+    it "DefaultLogger writes to stdout" do
       stub_get("/payments/#{PAYMENT_ID}", PAYMENT_DETAIL)
-      logged = Rail0::Client.new(base_url: BASE_URL, logger: Rail0::DEBUG_LOGGER)
-      expect { logged.payments.get(PAYMENT_ID) }.to output(/\[rail0\]/).to_stdout
+      expect do
+        logged = Rail0::Client.new(base_url: BASE_URL, logger: Rail0::DefaultLogger.new)
+        logged.payments.get(PAYMENT_ID)
+      end.to output(/\[rail0\]/).to_stdout
     end
   end
 

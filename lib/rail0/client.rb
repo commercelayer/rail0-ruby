@@ -1,13 +1,15 @@
-require_relative "http_client"
-require_relative "resources/auth"
-require_relative "resources/chains"
-require_relative "resources/tokens"
-require_relative "resources/health"
-require_relative "resources/payment_methods"
-require_relative "resources/wallets"
-require_relative "resources/payments"
-require_relative "resources/disputes"
-require_relative "resources/webhooks"
+# frozen_string_literal: true
+
+require "http_client"
+require "resources/auth"
+require "resources/chains"
+require "resources/tokens"
+require "resources/health"
+require "resources/payment_methods"
+require "resources/wallets"
+require "resources/payments"
+require "resources/disputes"
+require "resources/webhooks"
 
 module Rail0
   # Entry point for the RAIL0 SDK.
@@ -20,29 +22,31 @@ module Rail0
   # be supplied via +headers+: pass +{ "Authorization" => "Bearer <jwt>" }+ (the
   # JWT is obtained from +auth.login+). The SDK does not persist the token for you.
   class Client
-    # @return [Resources::Auth] SIWE authentication operations.
-    attr_reader :auth
-    # @return [Resources::Chains] Public blockchain catalog.
-    attr_reader :chains
-    # @return [Resources::Tokens] Public token catalog.
-    attr_reader :tokens
-    # @return [Resources::Health] Gateway liveness/readiness check.
-    attr_reader :health
-    # @return [Resources::PaymentMethods] Public buyer-facing payment-method discovery.
-    attr_reader :payment_methods
-    # @return [Resources::Wallets] Account-scoped wallet management (JWT).
-    attr_reader :wallets
-    # @return [Resources::Payments] Payment lifecycle operations.
-    attr_reader :payments
-    # @return [Resources::Disputes] Account-level dispute list (JWT).
-    attr_reader :disputes
-    # @return [Resources::Webhooks] Webhook subscription management (JWT).
-    attr_reader :webhooks
+    # @!attribute [r] auth
+    #   @return [Resources::Auth] SIWE authentication operations.
+    # @!attribute [r] chains
+    #   @return [Resources::Chains] Public blockchain catalog.
+    # @!attribute [r] tokens
+    #   @return [Resources::Tokens] Public token catalog.
+    # @!attribute [r] health
+    #   @return [Resources::Health] Gateway liveness/readiness check.
+    # @!attribute [r] payment_methods
+    #   @return [Resources::PaymentMethods] Public buyer-facing payment-method discovery.
+    # @!attribute [r] wallets
+    #   @return [Resources::Wallets] Account-scoped wallet management (JWT).
+    # @!attribute [r] payments
+    #   @return [Resources::Payments] Payment lifecycle operations.
+    # @!attribute [r] disputes
+    #   @return [Resources::Disputes] Account-level dispute list (JWT).
+    # @!attribute [r] webhooks
+    #   @return [Resources::Webhooks] Webhook subscription management (JWT).
+    attr_reader :auth, :chains, :tokens, :health, :payment_methods,
+                :wallets, :payments, :disputes, :webhooks
 
     # @param base_url [String] Base URL of the RAIL0 API, e.g. "https://api.rail0.xyz".
     # @param headers [Hash] Default headers merged into every request (e.g. Authorization).
     # @param timeout [Numeric] Timeout in seconds. Default: 30.
-    # @param logger [#call, nil] Optional logger. Pass Rail0::DEBUG_LOGGER for built-in output.
+    # @param logger [#call, nil] Optional logger. Pass Rail0::DEFAULT_LOGGER for built-in output.
     # @param max_retries [Integer] Extra attempts after a network failure. Default: 0.
     # @param retry_delay [Numeric] Base delay in seconds between retries (exponential backoff). Default: 0.2.
     def initialize(base_url:, headers: {}, timeout: 30, logger: nil, max_retries: 0, retry_delay: 0.2)
@@ -59,6 +63,7 @@ module Rail0
       @payments        = Resources::Payments.new(http)
       @disputes        = Resources::Disputes.new(http)
       @webhooks        = Resources::Webhooks.new(http)
+      freeze
     end
   end
 end

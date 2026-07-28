@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "query"
+require "query"
 
 module Rail0
   module Resources
@@ -8,8 +8,11 @@ module Rail0
     class Chains
       include Query
 
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # List active blockchains supported by RAIL0.
@@ -17,7 +20,7 @@ module Rail0
       # @param symbol [String, nil] Filter by native symbol (case-insensitive, e.g. "ETH").
       # @return [Array<Hash>] chain_id, name, native_symbol, network_type, explorer_url
       def list(network_type: nil, symbol: nil)
-        @http.get("/blockchains#{build_query(network_type: network_type, symbol: symbol)}")
+        http.get("/blockchains#{build_query(network_type: network_type, symbol: symbol)}")
       end
     end
   end

@@ -15,7 +15,7 @@ PAYEE_KEY  = ENV.fetch("PAYEE_PRIVATE_KEY")
 ACCOUNT_ID = ENV.fetch("RAIL0_ACCOUNT_ID")
 BUYER      = ENV.fetch("PAYER_ADDRESS")
 
-client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEBUG_LOGGER)
+client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEFAULT_LOGGER)
 
 # ── Step 0 — discover a merchant USDC wallet (public) ─────────────────────────
 wallet  = client.payment_methods.list(account_id: ACCOUNT_ID)

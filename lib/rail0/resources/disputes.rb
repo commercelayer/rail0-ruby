@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "query"
+require "query"
 
 module Rail0
   module Resources
@@ -13,8 +13,11 @@ module Rail0
     class Disputes
       include Query
 
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # List the account's disputes.
@@ -25,7 +28,7 @@ module Rail0
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def list(status: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(status: status, sort: sort, page: page, per_page: per_page)
-        @http.get_list("/disputes#{query}")
+        http.get_list("/disputes#{query}")
       end
     end
   end
