@@ -14,11 +14,7 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ">= 3.0"
 
-  # `logger` left the default gems in Ruby 4.0, and lib/rail0/default_logger.rb requires
-  # it at load time — so without this declaration the SDK cannot be loaded at all under
-  # bundler on a Ruby this gemspec says it supports. Declared as a runtime dependency
-  # rather than pinned in the Gemfile because it is the library that needs it, not the
-  # test setup.
+  # Not a default gem since Ruby 4.0; required by lib/rail0/default_logger.rb.
   spec.add_dependency "logger", "~> 1.6"
 
   spec.files         = Dir["lib/**/*.rb", "README.md", "LICENSE"]

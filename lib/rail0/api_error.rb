@@ -1,13 +1,9 @@
 # frozen_string_literal: true
 
 module Rail0
-  # Raised for non-2xx responses from the RAIL0 gateway.
-  #
-  # The gateway answers every error with a code/title/detail triple; this mirrors it.
-  # Show `detail` to a user and `title` as a heading: both come from the gateway's error
-  # catalogue, so the same condition always reads the same way whichever endpoint
-  # surfaced it. `hint` is this SDK's own advice — a supplement, present only for codes
-  # worth adding a next step to.
+  # Raised for non-2xx responses from the RAIL0 gateway, mirroring the code/title/detail
+  # triple the gateway answers with. `detail` is written to be shown to a user; `hint` is
+  # this SDK's own advice, present only for codes worth adding a next step to.
   class ApiError < StandardError
     # @!attribute [r] status
     #   @return [Integer] HTTP status code (e.g. 404, 409, 422).
@@ -23,7 +19,7 @@ module Rail0
 
     # @param status [Integer]
     # @param error [String]
-    # @param message [String] the detail; kept as the positional argument it has always been
+    # @param message [String] The detail; kept positional for compatibility.
     # @param title [String, nil]
     def initialize(status, error, message, title: nil)
       super(message)
@@ -34,9 +30,7 @@ module Rail0
       freeze
     end
 
-    # This SDK's actionable next step for the error, or nil when the code isn't one it
-    # knows. A SUPPLEMENT to #detail, which the gateway always sends.
-    #
+    # This SDK's actionable next step for the error, or nil when it has none.
     # @return [String, nil]
     def hint
       Rail0.describe_error(error)

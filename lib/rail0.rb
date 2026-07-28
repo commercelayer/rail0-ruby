@@ -6,7 +6,6 @@ resources_dir = File.join(rail0_dir, "resources")
 end
 
 require "rail0/version"
-# Before api_error: ApiError#hint calls Rail0.describe_error.
 require "rail0/error_hints"
 require "rail0/api_error"
 require "rail0/default_logger"

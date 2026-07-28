@@ -118,17 +118,10 @@ module Rail0
       {}
     end
 
-    # The specific condition. `code` is what a caller branches on; `status` carries the
-    # wider family (e.g. "forbidden" where the code is "not_the_payee"), so it is only a
-    # fallback — as is Grape's `error` sub-code. Reading `status` first, as this used to,
-    # handed callers the family and hid the specific condition.
     def error_code(body)
       body[:code] || body[:error] || body[:status]
     end
 
-    # The sentence to show a user. Prefer `detail` (written for exactly that), then
-    # `message` (its older name), then Grape's `error`, and finally the bare HTTP status
-    # when the body carried no text at all.
     def error_message(body, response = nil)
       body[:detail] || body[:message] || body[:error] || (response && "HTTP #{response.code}")
     end
