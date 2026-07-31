@@ -152,6 +152,16 @@ authed = Rail0::Client.new(
 )
 ```
 
+For a long-lived process, pass a **callable** instead of a fixed header so one
+shared client survives a token refresh — it is resolved per request:
+
+```ruby
+client = Rail0::Client.new(base_url: GATEWAY, token: -> { Current.rail0_jwt })
+```
+
+A String `token:` works for the simple case, and an explicit `Authorization` in
+`headers` still takes precedence.
+
 Lower-level building blocks are also available:
 
 ```ruby
@@ -199,6 +209,20 @@ client.wallets.update(account_id, id_or_address, label: "Renamed", active: false
 client.wallets.delete(account_id, id_or_address)                    # 204
 client.wallets.balances(account_id, id_or_address, chain_id: 84532) # live on-chain balances
 ```
+
+Which tokens a wallet accepts — this is what `payment_methods` then exposes to
+buyers, so it is the last step of merchant onboarding:
+
+```ruby
+holding = client.wallets.add_token(account_id, id_or_address, chain_id: 84532, token: "0x…", default: true)
+client.wallets.enable_token(account_id, id_or_address, holding[:id])
+client.wallets.disable_token(account_id, id_or_address, holding[:id])  # keeps the holding
+client.wallets.remove_token(account_id, id_or_address, holding[:id])   # 204, soft delete
+```
+
+`add_token` is idempotent by (wallet, chain, token): re-adding an existing holding
+re-enables it and answers 200 instead of creating a second row. The id passed to
+the other three is the **holding's** id, not the token address.
 
 ## Payments
 
@@ -277,6 +301,37 @@ client.webhooks.event_callbacks(id, status: "failed")
 client.webhooks.delete(id)           # 204
 ```
 
+### Verifying a delivery
+
+Every delivery carries `X-Rail0-Topic`, `X-Rail0-Timestamp` and
+`X-Rail0-Signature` — a hex HMAC-SHA256 over `"{timestamp}.{body}"` keyed by the
+webhook's `shared_secret`.
+
+```ruby
+# Rack / Rails controller
+def receive
+  raw = request.body.read
+
+  unless Rail0::WebhookSignature.verify(
+    body:      raw,                                     # the RAW body, not a re-serialised hash
+    signature: request.headers["X-Rail0-Signature"],
+    timestamp: request.headers["X-Rail0-Timestamp"],
+    secret:    ENV.fetch("RAIL0_WEBHOOK_SECRET")
+  )
+    return head :unauthorized
+  end
+
+  handle(JSON.parse(raw, symbolize_names: true))
+  head :ok
+end
+```
+
+The timestamp is inside the signed string on purpose, and `verify` rejects one
+outside ±300s (`tolerance:` to change it) **even when the digest matches** — that
+window is what bounds a replay of a captured delivery. Pass the body exactly as
+received: re-serialising a parsed hash changes key order and whitespace, and the
+digest with it. Comparison is constant-time.
+
 ## Analytics (JWT)
 
 Account-scoped: the numbers are the merchant's own, so a buyer's account-less token is
@@ -310,16 +365,45 @@ Requires the `eth` gem. No private key ever leaves your process.
 
 | Method | Use |
 |--------|-----|
-| `sign_payload(private_key, signing_payload)` | Sign the EIP-3009 payload from a create/refund response (picks Transfer vs Receive by `primaryType`) — the recommended path |
-| `sign_transaction(unsigned_transaction, private_key)` | Sign a prepare step's unsigned EIP-1559 transaction; returns the 0x raw tx |
-| `sign_transfer_with_authorization(private_key, domain, params)` | Raw EIP-3009 `TransferWithAuthorization` signer |
-| `sign_authorize(params)` / `sign_charge(params)` | Lower-level payer signers built from an explicit `SignPaymentParams` |
+| `sign_payload(signer, signing_payload)` | Sign the EIP-3009 payload from a create/refund response — the recommended path, and the only one that follows the gateway across contract versions |
+| `sign_transaction(unsigned_transaction, key)` | Sign a prepare step's unsigned EIP-1559 transaction; returns the 0x raw tx |
+| `sign_transfer_with_authorization(signer, domain, params)` | Raw EIP-3009 `TransferWithAuthorization` signer, for talking to a token directly |
 
 ```ruby
 require "rail0/signing"
 sig = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, payment[:signing_payload])
 client.payments.sign(rail0_id, { signature: sig.to_hex })
 ```
+
+**The gateway builds the payload; you sign it verbatim.** `sign_payload` takes the
+typehash from the payload's `primaryType` and every field from its `message` — only
+the gateway knows which contract version a payment lives on, and the version selects
+the typehash, the EIP-712 domain and the field layout. An unrecognised `primaryType`
+raises rather than falling back, because a guessed typehash yields a *valid*
+signature over the wrong digest, which fails only on-chain, after gas.
+
+`sign_authorize` / `sign_charge` were removed for that reason — they rebuilt the
+digest from a payment record. They raise with a pointer here.
+
+### Signing without a raw key
+
+`sign_payload` and `sign_transfer_with_authorization` accept a private-key String,
+an `Eth::Key`, or **any object responding to `#sign(digest)`** that returns a
+65-byte hex signature — a KMS or HSM client, a remote signer, a hardware-wallet
+bridge. The SDK builds the EIP-712 digest and hands only that over, so the secret
+need never be materialised as a String in your process:
+
+```ruby
+class KmsSigner
+  def sign(digest) = MyKms.sign(key_id: KEY_ID, digest: digest)  # -> "0x…" (65 bytes)
+end
+
+sig = Rail0::Signing.sign_payload(KmsSigner.new, payment[:signing_payload])
+```
+
+`sign_transaction` is narrower on purpose: `Eth::Tx#sign` derives an EIP-155 `v`
+from the chain id, so it needs a full `Eth::Key` (a String or an `Eth::Key`), not a
+bare digest signer.
 
 ## Logging
 

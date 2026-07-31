@@ -175,13 +175,43 @@ module Rail0
 
     private_class_method :hash_domain, :hash_struct, :build_digest
 
-    def self.do_sign(private_key, domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash:)
-      key_hex = private_key.start_with?("0x") ? private_key[2..] : private_key
-      key     = Eth::Key.new(priv: key_hex)
-      digest  = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce, typehash: typehash)
+    # Resolve whatever the caller passed into something that can sign a digest.
+    #
+    # The seam exists so the raw secret does not have to be materialised as a Ruby
+    # String in the calling process: pass a private-key String (unchanged), an
+    # Eth::Key, or ANY object responding to #sign(digest) -> 65-byte hex — a KMS or
+    # HSM client, a remote signer, a hardware wallet bridge. This SDK builds the
+    # EIP-712 digest and hands only that over; it never needs the key material
+    # itself, which is what makes "the server must never hold the buyer's key"
+    # implementable rather than aspirational. (#10)
+    def self.signer_for(private_key)
+      return private_key if private_key.respond_to?(:sign)
 
-      sig       = key.sign(digest)
-      sig_bytes = [sig].pack("H*")
+      unless private_key.is_a?(String)
+        raise ArgumentError,
+              "expected a private key String or an object responding to #sign(digest), " \
+              "got #{private_key.class}"
+      end
+
+      Eth::Key.new(priv: private_key.delete_prefix("0x"))
+    end
+
+    private_class_method :signer_for
+
+    def self.do_sign(private_key, domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash:)
+      digest = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce, typehash: typehash)
+
+      sig       = signer_for(private_key).sign(digest)
+      sig_bytes = [sig.to_s.delete_prefix("0x")].pack("H*")
+
+      # A custom signer that returns something else would otherwise produce a
+      # signature with v: nil, which only fails later in #to_hex with nothing
+      # pointing at the signer.
+      unless sig_bytes.bytesize == 65
+        raise ArgumentError,
+              "the signer returned #{sig_bytes.bytesize} bytes, expected 65 " \
+              "(r || s || v as hex)"
+      end
 
       Eip3009Signature.new(
         v: sig_bytes.getbyte(64),
@@ -223,8 +253,12 @@ module Rail0
         data:         f["data"].to_s
       )
 
-      key_hex = private_key.start_with?("0x") ? private_key[2..] : private_key
-      tx.sign(Eth::Key.new(priv: key_hex))
+      # Deliberately narrower than the digest signers above: Eth::Tx#sign needs a
+      # full Eth::Key (it asks for an EIP-155 v derived from the chain id, not a bare
+      # digest signature), so an arbitrary #sign(digest) object cannot serve here.
+      # An Eth::Key is accepted so a caller holding one doesn't have to export it
+      # back to a String.
+      tx.sign(private_key.is_a?(Eth::Key) ? private_key : Eth::Key.new(priv: private_key.delete_prefix("0x")))
       "0x#{tx.hex}"
     end
 

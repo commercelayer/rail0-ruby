@@ -218,6 +218,120 @@ RSpec.describe Rail0::Client do
       result = client.wallets.balances(ACCOUNT_ID, WALLET_ID)
       expect(result[:balances].first[:tokens].first[:symbol]).to eq("USDC")
     end
+
+    # Which tokens a wallet accepts is what GET /payment_methods then shows buyers,
+    # so these four are what let a merchant finish onboarding through the SDK. (#12)
+    describe "token holdings" do
+      let(:holding) { { id: TOKEN_HOLDING_ID, active: true, default: false } }
+
+      it "add_token posts chain_id and token, omitting default when not given" do
+        stub = stub_request(:post, "#{BASE_URL}#{base}/#{WALLET_ID}/tokens")
+               .with(body: { chain_id: 84_532, token: TOKEN }.to_json)
+               .to_return(status: 201, body: holding.to_json, headers: json_headers)
+
+        result = client.wallets.add_token(ACCOUNT_ID, WALLET_ID, chain_id: 84_532, token: TOKEN)
+
+        expect(stub).to have_been_requested
+        expect(result[:id]).to eq(TOKEN_HOLDING_ID)
+      end
+
+      it "add_token forwards default: true" do
+        stub = stub_request(:post, "#{BASE_URL}#{base}/#{WALLET_ID}/tokens")
+               .with(body: { chain_id: 84_532, token: TOKEN, default: true }.to_json)
+               .to_return(status: 200, body: holding.merge(default: true).to_json, headers: json_headers)
+
+        client.wallets.add_token(ACCOUNT_ID, WALLET_ID, chain_id: 84_532, token: TOKEN, default: true)
+
+        expect(stub).to have_been_requested
+      end
+
+      # add_token also accepts a wallet ADDRESS in place of the uuid, like every
+      # other method on this resource.
+      it "add_token accepts a wallet address" do
+        stub = stub_request(:post, "#{BASE_URL}#{base}/#{PAYEE}/tokens")
+               .to_return(status: 201, body: holding.to_json, headers: json_headers)
+
+        client.wallets.add_token(ACCOUNT_ID, PAYEE, chain_id: 84_532, token: TOKEN)
+
+        expect(stub).to have_been_requested
+      end
+
+      it "remove_token returns nil on 204" do
+        stub_request(:delete, "#{BASE_URL}#{base}/#{WALLET_ID}/tokens/#{TOKEN_HOLDING_ID}")
+          .to_return(status: 204, body: "")
+
+        expect(client.wallets.remove_token(ACCOUNT_ID, WALLET_ID, TOKEN_HOLDING_ID)).to be_nil
+      end
+
+      it "enable_token and disable_token PATCH their own sub-paths" do
+        enable  = stub_patch("#{base}/#{WALLET_ID}/tokens/#{TOKEN_HOLDING_ID}/enable",  holding.merge(active: true))
+        disable = stub_patch("#{base}/#{WALLET_ID}/tokens/#{TOKEN_HOLDING_ID}/disable", holding.merge(active: false))
+
+        expect(client.wallets.enable_token(ACCOUNT_ID, WALLET_ID, TOKEN_HOLDING_ID)[:active]).to be(true)
+        expect(client.wallets.disable_token(ACCOUNT_ID, WALLET_ID, TOKEN_HOLDING_ID)[:active]).to be(false)
+        expect(enable).to have_been_requested
+        expect(disable).to have_been_requested
+      end
+    end
+  end
+
+  # ── Authorization header resolution ────────────────────────────────────────
+  #
+  # You need a client to call auth.login and the login's JWT to build the client you
+  # actually use, so a header fixed at construction forced a new client (and its ten
+  # resources) per sign-in and per refresh. (#11)
+
+  describe "token:" do
+    def stub_authed_get(token)
+      stub_request(:get, "#{BASE_URL}/health")
+        .with(headers: { "Authorization" => "Bearer #{token}" })
+        .to_return(status: 200, body: HEALTH.to_json, headers: json_headers)
+    end
+
+    it "accepts a plain String token" do
+      stub = stub_authed_get("static-jwt")
+      Rail0::Client.new(base_url: BASE_URL, token: "static-jwt").health.get
+      expect(stub).to have_been_requested
+    end
+
+    # The point of the seam: ONE client, whose identity follows the proc.
+    it "resolves a callable on every request, so a rotated token is picked up" do
+      current = "first-jwt"
+      client  = Rail0::Client.new(base_url: BASE_URL, token: -> { current })
+
+      first = stub_authed_get("first-jwt")
+      client.health.get
+      expect(first).to have_been_requested
+
+      current = "second-jwt"
+      second = stub_authed_get("second-jwt")
+      client.health.get
+      expect(second).to have_been_requested
+    end
+
+    it "leaves the header off entirely when the callable returns nothing" do
+      stub = stub_request(:get, "#{BASE_URL}/health")
+             .with { |req| !req.headers.key?("Authorization") }
+             .to_return(status: 200, body: HEALTH.to_json, headers: json_headers)
+
+      Rail0::Client.new(base_url: BASE_URL, token: -> { nil }).health.get
+
+      expect(stub).to have_been_requested
+    end
+
+    # An explicit header is the pre-existing way to pass a JWT; it must keep winning
+    # so upgrading changes nothing for callers already doing that.
+    it "lets an explicit Authorization header win" do
+      stub = stub_authed_get("explicit-jwt")
+
+      Rail0::Client.new(
+        base_url: BASE_URL,
+        headers:  { "Authorization" => "Bearer explicit-jwt" },
+        token:    -> { "ignored-jwt" }
+      ).health.get
+
+      expect(stub).to have_been_requested
+    end
   end
 
   # ── Payments: core ───────────────────────────────────────────────────────
