@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "query"
+require_relative "query"
 
 module Rail0
   module Resources

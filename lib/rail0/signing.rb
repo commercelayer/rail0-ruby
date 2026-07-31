@@ -24,7 +24,7 @@ module Rail0
   #
   # ## Typical usage (simplest path)
   #
-  #   resp = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x...", payer: "0x...", payee: "0x...")
+  #   resp = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100.00", token: "0x...", payer: "0x...", payee: "0x...")
   #   sig  = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signing_payload])
   #   client.payments.sign(resp[:rail0_id], { signature: sig.to_hex })
   #
@@ -60,13 +60,10 @@ module Rail0
       end
     end
 
-    # Parameters for signing an authorize or charge call.
-    #
-    # The contract hardcodes `validAfter = 0` and `validBefore = payment[:authorization_expiry]`;
-    # these are not configurable by the caller.
-    #
-    # `payment` is a hash with the gateway's snake_case keys — it must carry
-    # `[:payer]`, `[:amount]`, and `[:authorization_expiry]` (a create response works directly).
+    # DEPRECATED — the parameter object of the removed {sign_authorize} /
+    # {sign_charge}. Kept only so existing code reaches those methods' migration
+    # message instead of a NameError while building their arguments; nothing in this
+    # SDK consumes it. Use {sign_payload} with the gateway's `signing_payload`.
     SignPaymentParams = Struct.new(
       :private_key, :payment, :nonce, :contract_address, :token_domain,
       keyword_init: true
@@ -84,6 +81,46 @@ module Rail0
 
     private_constant :DOMAIN_TYPE, :TRANSFER_TYPE, :RECEIVE_TYPE,
                      :DOMAIN_TYPEHASH, :TRANSFER_TYPEHASH, :RECEIVE_TYPEHASH
+
+    # Primary types the gateway can ask us to sign. Which one a payment needs is
+    # the gateway's business: it builds its client per-payment with the deployment's
+    # contract_version, and the version selects the typehash, the domain and the
+    # field layout.
+    PRIMARY_TYPES = {
+      "TransferWithAuthorization" => TRANSFER_TYPEHASH,
+      "ReceiveWithAuthorization"  => RECEIVE_TYPEHASH
+    }.freeze
+    private_constant :PRIMARY_TYPES
+
+    # Resolve a payload's primaryType to its typehash, or refuse.
+    #
+    # NEVER guess. This used to be a ternary that fell back to the Transfer
+    # typehash for anything that wasn't the exact string "ReceiveWithAuthorization"
+    # — including a nil, a typo, or a primary type introduced by a newer gateway.
+    # The result is a perfectly well-formed signature over the WRONG digest: the
+    # call reports success, and the failure surfaces only on-chain, after gas,
+    # where it looks like a bad key. An unknown type means this SDK is older than
+    # the gateway it is talking to, which is a diagnosable condition. (#7)
+    def self.typehash_for(primary_type)
+      PRIMARY_TYPES.fetch(primary_type.to_s) do
+        raise ArgumentError,
+              "unsupported signing payload primaryType #{primary_type.inspect} " \
+              "(expected one of #{PRIMARY_TYPES.keys.join(', ')}) — this SDK is older " \
+              "than the gateway it is talking to; upgrade rail0-ruby"
+      end
+    end
+
+    # Accept a payload whose keys are Strings as well as Symbols: callers who parse
+    # the gateway's JSON themselves get string keys, and every lookup here is by
+    # symbol. Silently returning nils for a string-keyed payload is how a caller
+    # ends up signing a digest full of blanks.
+    def self.symbolize(hash)
+      raise ArgumentError, "signing payload must be a Hash, got #{hash.class}" unless hash.is_a?(Hash)
+
+      hash.transform_keys { |k| k.respond_to?(:to_sym) ? k.to_sym : k }
+    end
+
+    private_class_method :typehash_for, :symbolize
 
     def self.hex_to_bytes(hex)
       h = hex.start_with?("0x") ? hex[2..] : hex
@@ -115,7 +152,7 @@ module Rail0
       )
     end
 
-    def self.hash_struct(from:, to:, value:, valid_after:, valid_before:, nonce:, typehash: TRANSFER_TYPEHASH)
+    def self.hash_struct(from:, to:, value:, valid_after:, valid_before:, nonce:, typehash:)
       Eth::Util.keccak256(
         typehash +
         abi_address(from) +
@@ -127,7 +164,7 @@ module Rail0
       )
     end
 
-    def self.build_digest(domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash: TRANSFER_TYPEHASH)
+    def self.build_digest(domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash:)
       Eth::Util.keccak256(
         "\x19\x01" +
         hash_domain(domain) +
@@ -138,7 +175,7 @@ module Rail0
 
     private_class_method :hash_domain, :hash_struct, :build_digest
 
-    def self.do_sign(private_key, domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash: TRANSFER_TYPEHASH)
+    def self.do_sign(private_key, domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash:)
       key_hex = private_key.start_with?("0x") ? private_key[2..] : private_key
       key     = Eth::Key.new(priv: key_hex)
       digest  = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce, typehash: typehash)
@@ -200,7 +237,7 @@ module Rail0
     #
     #   resp = client.payments.create(
     #     chain_id: 84532, mode: "authorize",
-    #     amount: "100000000", token: "0x...", payer: "0x...", payee: "0x..."
+    #     amount: "100.00", token: "0x...", payer: "0x...", payee: "0x..."
     #   )
     #   sig = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signing_payload])
     #   client.payments.sign(resp[:rail0_id], { signature: sig.to_hex })
@@ -209,8 +246,9 @@ module Rail0
     # @param signing_payload [Hash] The signingPayload hash from the create response.
     # @return [Eip3009Signature]
     def self.sign_payload(private_key, signing_payload)
-      d = signing_payload[:domain]
-      m = signing_payload[:message]
+      payload = symbolize(signing_payload)
+      d = symbolize(payload[:domain])
+      m = symbolize(payload[:message])
 
       domain = TokenDomain.new(
         name:               d[:name],
@@ -219,7 +257,7 @@ module Rail0
         verifying_contract: d[:verifyingContract]
       )
 
-      th = signing_payload[:primaryType] == "ReceiveWithAuthorization" ? RECEIVE_TYPEHASH : TRANSFER_TYPEHASH
+      th = typehash_for(payload[:primaryType])
 
       do_sign(
         private_key, domain,
@@ -251,55 +289,45 @@ module Rail0
         value:        params.value,
         valid_after:  params.valid_after,
         valid_before: params.valid_before,
-        nonce:        params.nonce
+        nonce:        params.nonce,
+        # Explicit, not defaulted: this method is BY NAME the transferWithAuthorization
+        # one. Removing the default from do_sign means no path can inherit a typehash
+        # it never asked for.
+        typehash:     TRANSFER_TYPEHASH
       )
     end
 
-    # Sign the EIP-3009 payload required by an authorize call.
+    # REMOVED — see {sign_payload}.
     #
-    # Lower-level than {sign_payload}: the caller supplies an explicit
-    # {SignPaymentParams}. `payment` is a hash with the gateway's snake_case keys
-    # (`:payer`, `:amount`, `:authorization_expiry`). The nonce encodes the
-    # RAIL0.AUTHORIZE prefix server-side; pass it from the create response's
-    # signing payload. Prefer {sign_payload} when the full payload is available.
+    # These two rebuilt the EIP-3009 digest from a payment record: they read
+    # from/value/validBefore off the payment, hardcoded `validAfter = 0` and `to =
+    # the RAIL0 contract`, and took do_sign's default (Transfer) typehash. That
+    # re-imports into the client the contract versioning the gateway exists to
+    # absorb — only the gateway knows which contract version a given payment lives
+    # on, and the version selects the typehash, the domain AND the field layout.
     #
-    #   resp  = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x...", payer: "0x...", payee: "0x...")
-    #   sig   = Rail0::Signing.sign_authorize(Rail0::Signing::SignPaymentParams.new(
-    #     private_key:      "0x...",
-    #     payment:          resp,                                   # flat Payment record
-    #     nonce:            resp[:signing_payload][:message][:nonce],
-    #     contract_address: resp[:rail0_contract],
-    #     token_domain:     Rail0::Signing::TokenDomain.new(
-    #       name: "USD Coin", version: "2", chain_id: 84532, verifying_contract: resp[:token]
-    #     )
-    #   ))
-    #   client.payments.sign(resp[:rail0_id], { signature: sig.to_hex })
+    # The cost is invisible until it is expensive: rail0#58 moves authorize/charge
+    # to ReceiveWithAuthorization, at which point {sign_payload} follows the gateway
+    # by construction while these two would keep signing the old typehash — a valid
+    # signature over a digest the token refuses, reported as success, failing
+    # on-chain after gas.
     #
-    # @param params [SignPaymentParams]
-    # @return [Eip3009Signature]
-    def self.sign_authorize(params)
-      do_sign(
-        params.private_key, params.token_domain,
-        from:         params.payment[:payer],
-        to:           params.contract_address,
-        value:        params.payment[:amount].to_i,
-        valid_after:  0,
-        valid_before: params.payment[:authorization_expiry],
-        nonce:        params.nonce
-      )
+    # They raise rather than being deleted outright so the migration path arrives
+    # with the failure instead of a bare NoMethodError. (#7)
+    REMOVED_MESSAGE =
+      "Rail0::Signing.%s was removed: it rebuilt the EIP-3009 digest from a payment " \
+      "record, which signs the WRONG digest as soon as the contract's payload changes " \
+      "(rail0#58 moves authorize/charge to ReceiveWithAuthorization). Use " \
+      "Rail0::Signing.sign_payload(private_key, create_response[:signing_payload]) — " \
+      "the gateway builds the payload, clients sign it verbatim."
+    private_constant :REMOVED_MESSAGE
+
+    def self.sign_authorize(_params = nil)
+      raise NotImplementedError, format(REMOVED_MESSAGE, "sign_authorize")
     end
 
-    # Sign the EIP-3009 payload required by a charge call.
-    #
-    # Identical signing logic to {sign_authorize}; the operation distinction is encoded in
-    # the nonce prefix by the server (RAIL0.CHARGE vs RAIL0.AUTHORIZE). A charge signature
-    # cannot be reused for authorize and vice versa. Prefer {sign_payload} when the full
-    # signing payload is available.
-    #
-    # @param params [SignPaymentParams]
-    # @return [Eip3009Signature]
-    def self.sign_charge(params)
-      sign_authorize(params)
+    def self.sign_charge(_params = nil)
+      raise NotImplementedError, format(REMOVED_MESSAGE, "sign_charge")
     end
   end
 end

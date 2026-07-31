@@ -27,11 +27,11 @@ RSpec.describe Rail0::Signing do
     primaryType: "TransferWithAuthorization",
     message: {
       from:        TEST_ADDRESS,
-      to:          "0xRail0Contract0000000000000000000000000000",
+      to:          "0x13a46eDDBE6105f5c055A2C8729b773C9C7BBa1F",
       value:       "100000000",
       validAfter:  "0",
       validBefore: "9999999999",
-      nonce:       "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
+      nonce:       "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
     }
   }.freeze
 
@@ -116,66 +116,104 @@ RSpec.describe Rail0::Signing do
   end
 
   # ================================================================
-  #  sign_authorize / sign_charge
+  #  primaryType handling — the payload is signed VERBATIM
+  # ================================================================
+  #
+  # The rule this section exists to pin: the gateway builds the signing payload and
+  # the client signs it as given. Which typehash to use is stated by the payload's
+  # primaryType, never inferred, never defaulted. (#7)
+
+  describe ".sign_payload primaryType handling" do
+    def payload_with(primary_type)
+      SIGNING_PAYLOAD.merge(primaryType: primary_type)
+    end
+
+    it "signs both primary types the gateway can emit, and differently" do
+      transfer = Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, payload_with("TransferWithAuthorization"))
+      receive  = Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, payload_with("ReceiveWithAuthorization"))
+
+      # The typehash is part of the digest, so identical signatures would mean the
+      # primaryType was being ignored.
+      expect(transfer.to_hex).not_to eq(receive.to_hex)
+      [transfer, receive].each { |sig| expect(sig.to_hex).to match(/\A0x[0-9a-f]{130}\z/i) }
+    end
+
+    # A silent fallback to one of the two known typehashes is how a client older
+    # than its gateway signs the wrong digest and reports success.
+    it "refuses an unknown primaryType instead of falling back" do
+      expect { Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, payload_with("SomeFutureAuthorization")) }
+        .to raise_error(ArgumentError, /SomeFutureAuthorization/)
+    end
+
+    it "refuses a missing primaryType" do
+      expect { Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD.reject { |k, _| k == :primaryType }) }
+        .to raise_error(ArgumentError, /primaryType/)
+    end
+
+    it "names the version skew in the error, so the reader upgrades rather than blaming the key" do
+      expect { Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, payload_with("Nonsense")) }
+        .to raise_error(ArgumentError, /older than the gateway/)
+    end
+
+    # Everything signed must come from the payload — not from a payment record.
+    it "reads every message and domain field from the payload" do
+      base = Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD).to_hex
+
+      mutations = {
+        "message.value"       => { message: SIGNING_PAYLOAD[:message].merge(value: "100000001") },
+        "message.from"        => { message: SIGNING_PAYLOAD[:message].merge(from: "0x0000000000000000000000000000000000000002") },
+        "message.to"          => { message: SIGNING_PAYLOAD[:message].merge(to: "0x0000000000000000000000000000000000000001") },
+        "message.validAfter"  => { message: SIGNING_PAYLOAD[:message].merge(validAfter: "1") },
+        "message.validBefore" => { message: SIGNING_PAYLOAD[:message].merge(validBefore: "8888888888") },
+        "message.nonce"       => { message: SIGNING_PAYLOAD[:message].merge(nonce: "0x#{'cd' * 32}") },
+        "domain.chainId"      => { domain:  SIGNING_PAYLOAD[:domain].merge(chainId: 1) },
+        "domain.name"         => { domain:  SIGNING_PAYLOAD[:domain].merge(name: "Other Coin") },
+        "domain.version"      => { domain:  SIGNING_PAYLOAD[:domain].merge(version: "1") },
+        "domain.verifyingContract" => { domain: SIGNING_PAYLOAD[:domain].merge(verifyingContract: "0x0000000000000000000000000000000000000003") }
+      }
+
+      mutations.each do |field, override|
+        mutated = Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD.merge(override)).to_hex
+        expect(mutated).not_to eq(base), "changing #{field} did not change the signature"
+      end
+    end
+
+    # Callers who parse the gateway's JSON themselves get string keys; every lookup
+    # inside is by symbol, so this used to silently sign a digest full of blanks.
+    it "accepts a string-keyed payload" do
+      symbol_keyed = Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD).to_hex
+      string_keyed = Rail0::Signing.sign_payload(
+        TEST_PRIVATE_KEY, JSON.parse(SIGNING_PAYLOAD.to_json)
+      ).to_hex
+
+      expect(string_keyed).to eq(symbol_keyed)
+    end
+
+    it "rejects a payload that isn't a Hash" do
+      expect { Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, "not a payload") }
+        .to raise_error(ArgumentError, /must be a Hash/)
+    end
+  end
+
+  # ================================================================
+  #  removed digest-rebuilding helpers
   # ================================================================
 
   describe ".sign_authorize and .sign_charge" do
-    let(:payment) do
-      # Flat, snake_case Payment record as returned by the gateway.
-      {
-        payer:                TEST_ADDRESS,
-        payee:                "0xMerchant00000000000000000000000000000000",
-        token:                "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-        amount:               "100000000",
-        authorization_expiry: 9_999_999_999,
-        refund_expiry:        9_999_999_999
-      }
+    # They rebuilt the digest from a payment record and hardcoded the Transfer
+    # typehash, so rail0#58 (authorize/charge → ReceiveWithAuthorization) would have
+    # made them sign a digest the token refuses, while reporting success. They raise
+    # with the migration path rather than being deleted outright.
+    it "raise with a message pointing at sign_payload" do
+      %i[sign_authorize sign_charge].each do |method|
+        expect { Rail0::Signing.public_send(method, nil) }
+          .to raise_error(NotImplementedError, /sign_payload/)
+      end
     end
 
-    let(:params) do
-      Rail0::Signing::SignPaymentParams.new(
-        private_key:      TEST_PRIVATE_KEY,
-        payment:          payment,
-        nonce:            SIGNING_PAYLOAD[:message][:nonce],
-        contract_address: "0xRail0Contract0000000000000000000000000000",
-        token_domain:     Rail0::Signing::TokenDomain.new(
-          name:               "USD Coin",
-          version:            "2",
-          chain_id:           84532,
-          verifying_contract: payment[:token]
-        )
-      )
-    end
-
-    it "sign_authorize returns a valid Eip3009Signature" do
-      sig = Rail0::Signing.sign_authorize(params)
-      expect(sig).to be_a(Rail0::Signing::Eip3009Signature)
-      expect(sig.to_hex).to match(/\A0x[0-9a-f]{130}\z/i)
-    end
-
-    it "sign_charge returns a valid Eip3009Signature" do
-      sig = Rail0::Signing.sign_charge(params)
-      expect(sig).to be_a(Rail0::Signing::Eip3009Signature)
-      expect(sig.to_hex).to match(/\A0x[0-9a-f]{130}\z/i)
-    end
-
-    it "sign_authorize and sign_charge produce the same signature for the same params" do
-      # Both use the same nonce here (server differentiates via prefix; we pass the same nonce)
-      auth_sig   = Rail0::Signing.sign_authorize(params)
-      charge_sig = Rail0::Signing.sign_charge(params)
-      expect(auth_sig.to_hex).to eq(charge_sig.to_hex)
-    end
-
-    it "produces a different signature when the nonce differs" do
-      other_params = Rail0::Signing::SignPaymentParams.new(
-        private_key:      TEST_PRIVATE_KEY,
-        payment:          payment,
-        nonce:            "0x" + "ff" * 32,  # different nonce → different digest
-        contract_address: "0xRail0Contract0000000000000000000000000000",
-        token_domain:     params.token_domain
-      )
-      expect(Rail0::Signing.sign_authorize(params).to_hex)
-        .not_to eq(Rail0::Signing.sign_authorize(other_params).to_hex)
+    it "explain WHY, so the removal doesn't read as an arbitrary API churn" do
+      expect { Rail0::Signing.sign_authorize(nil) }
+        .to raise_error(NotImplementedError, /WRONG digest/)
     end
   end
 
@@ -193,10 +231,10 @@ RSpec.describe Rail0::Signing do
       )
       transfer_params = Rail0::Signing::SignTransferParams.new(
         from:         TEST_ADDRESS,
-        to:           "0xRail0Contract0000000000000000000000000000",
+        to:           "0x13a46eDDBE6105f5c055A2C8729b773C9C7BBa1F",
         value:        100_000_000,
         valid_before: 9_999_999_999,
-        nonce:        "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
+        nonce:        "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
       )
 
       sig = Rail0::Signing.sign_transfer_with_authorization(TEST_PRIVATE_KEY, domain, transfer_params)

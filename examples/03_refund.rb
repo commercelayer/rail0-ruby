@@ -26,7 +26,7 @@ payee = Rail0::Client.new(
 state = payee.payments.get(PAYMENT_ID)
 puts "status: #{state[:status]}  refundable: #{state[:refundable_amount]}"
 
-refund_amount = "50000000"  # 50 USDC
+refund_amount = "50.00"  # human decimals, NOT base units — the gateway scales
 
 # ── Phase 1 — get the EIP-3009 signing payload ────────────────────────────────
 p1  = payee.payments.refund_prepare(PAYMENT_ID, amount: refund_amount)

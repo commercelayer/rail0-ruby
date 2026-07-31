@@ -43,7 +43,13 @@ module Rail0
     "authorization_not_expired" => "release opens only after authorizationExpiry — wait until it passes",
     "already_captured" => "already (partially) captured — use release for the remainder, not void",
     "token_not_accepted" => "the token isn't in this deployment's allowlist",
-    "payment_already_exists" => "a payment with this id already exists on-chain"
+    "payment_already_exists" => "a payment with this id already exists on-chain",
+    # Ported from rail0-go, which had drifted five codes ahead of this table (#13).
+    "unsupported_payment_method" => "the payee (merchant) doesn't accept this token/chain — check the merchant's payment methods",
+    "unknown_token" => "the token isn't configured on this chain",
+    "no_active_contract" => "no active RAIL0 contract on that chain",
+    "missing_param" => "a required parameter is missing from the request",
+    "forbidden" => "not permitted for this session — on create the payer must be the signed-in address"
   }.freeze
 
   # An actionable hint for a rail0 error code, or nil when the code is unknown.

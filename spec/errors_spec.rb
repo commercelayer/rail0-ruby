@@ -98,5 +98,20 @@ RSpec.describe "error surface" do
         expect(Rail0.describe_error(code)).not_to be_nil, "#{code} has no hint"
       end
     end
+
+    # The five that rail0-go carried and this table did not. Kept as an explicit list
+    # rather than a count, so the next divergence names the missing code (#13).
+    it "covers the codes rail0-go had drifted ahead on" do
+      %w[unsupported_payment_method unknown_token no_active_contract
+         missing_param forbidden].each do |code|
+        expect(Rail0.describe_error(code)).not_to be_nil, "#{code} has no hint"
+      end
+    end
+
+    # `forbidden` is the one whose hint has to say something the code cannot: the
+    # payer/caller rule on create is the most common way to hit it.
+    it "explains what forbidden usually means on create" do
+      expect(Rail0.describe_error("forbidden")).to include("payer")
+    end
   end
 end

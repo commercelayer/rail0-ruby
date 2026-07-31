@@ -1,27 +1,29 @@
 # frozen_string_literal: true
 
-require "http_client"
-require "resources/auth"
-require "resources/chains"
-require "resources/tokens"
-require "resources/health"
-require "resources/payment_methods"
-require "resources/wallets"
-require "resources/payments"
-require "resources/disputes"
-require "resources/webhooks"
-require "resources/analytics"
+require_relative "http_client"
+require_relative "resources/auth"
+require_relative "resources/chains"
+require_relative "resources/tokens"
+require_relative "resources/health"
+require_relative "resources/payment_methods"
+require_relative "resources/wallets"
+require_relative "resources/payments"
+require_relative "resources/disputes"
+require_relative "resources/webhooks"
+require_relative "resources/analytics"
 
 module Rail0
   # Entry point for the RAIL0 SDK.
   #
   #   client = Rail0::Client.new(base_url: "https://api.rail0.xyz")
   #   resp   = client.auth.login(private_key: "0x...", domain: "api.rail0.xyz")
-  #   resp   = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x...", payer: "0x...", payee: "0x...")
+  #   resp   = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100.00", token: "0x...", payer: "0x...", payee: "0x...")
   #
-  # JWT-protected resources (wallets, webhooks, payments.list) expect the token to
-  # be supplied via +headers+: pass +{ "Authorization" => "Bearer <jwt>" }+ (the
-  # JWT is obtained from +auth.login+). The SDK does not persist the token for you.
+  # Most of this API is authenticated: the ENTIRE payments sub-tree (create, sign,
+  # every prepare/submit, reads and list) plus wallets, webhooks, disputes and
+  # analytics. Only chains, tokens, health and payment_methods are public. The token
+  # is supplied via +headers+: pass +{ "Authorization" => "Bearer <jwt>" }+ (obtained
+  # from +auth.login+). The SDK does not persist the token for you.
   class Client
     # @!attribute [r] auth
     #   @return [Resources::Auth] SIWE authentication operations.

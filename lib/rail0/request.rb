@@ -4,8 +4,8 @@ require "net/http"
 require "json"
 require "uri"
 require "forwardable"
-require "api_error"
-require "default_logger"
+require_relative "api_error"
+require_relative "default_logger"
 
 module Rail0
   # @!visibility private

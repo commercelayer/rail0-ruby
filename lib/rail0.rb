@@ -1,15 +1,18 @@
-rail0_dir     = File.join(__dir__, "rail0")
-resources_dir = File.join(rail0_dir, "resources")
+# frozen_string_literal: true
 
-[__dir__, rail0_dir, resources_dir].each do |dir|
-  $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir)
-end
+# Entry point. Everything below is loaded with require_relative on purpose: the
+# gem used to unshift lib/rail0 and lib/rail0/resources onto the GLOBAL $LOAD_PATH
+# so its files could require each other by bare name ("request", "query", …).
+# That put ~20 generic basenames at the FRONT of the search path for the whole
+# process, so any gem loaded afterwards doing a bare `require "request"` silently
+# got ours — order-dependent and effectively undiagnosable. require_relative needs
+# no path at all. (#5)
 
-require "rail0/version"
-require "rail0/error_hints"
-require "rail0/api_error"
-require "rail0/default_logger"
-require "rail0/request"
-require "rail0/http_client"
-require "rail0/client"
-require "rail0/stablecoins"
+require_relative "rail0/version"
+require_relative "rail0/error_hints"
+require_relative "rail0/api_error"
+require_relative "rail0/default_logger"
+require_relative "rail0/request"
+require_relative "rail0/http_client"
+require_relative "rail0/client"
+require_relative "rail0/stablecoins"
