@@ -51,13 +51,17 @@ module Rail0
 
     # @param base_url [String] Base URL of the RAIL0 API, e.g. "https://api.rail0.xyz".
     # @param headers [Hash] Default headers merged into every request (e.g. Authorization).
+    # @param token [String, #call, nil] Bearer token, or a callable resolved per request
+    #   (e.g. +token: -> { current_jwt }+) so one shared client survives a token
+    #   refresh. An explicit Authorization in +headers+ takes precedence.
     # @param timeout [Numeric] Timeout in seconds. Default: 30.
     # @param logger [#call, nil] Optional logger. Pass Rail0::DEFAULT_LOGGER for built-in output.
     # @param max_retries [Integer] Extra attempts after a network failure. Default: 0.
     # @param retry_delay [Numeric] Base delay in seconds between retries (exponential backoff). Default: 0.2.
-    def initialize(base_url:, headers: {}, timeout: 30, logger: nil, max_retries: 0, retry_delay: 0.2)
+    def initialize(base_url:, headers: {}, token: nil, timeout: 30, logger: nil,
+                   max_retries: 0, retry_delay: 0.2)
       http = HttpClient.new(
-        base_url: base_url, headers: headers, timeout: timeout,
+        base_url: base_url, headers: headers, token: token, timeout: timeout,
         logger: logger, max_retries: max_retries, retry_delay: retry_delay
       )
       @auth            = Resources::Auth.new(http)

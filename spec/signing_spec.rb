@@ -218,6 +218,63 @@ RSpec.describe Rail0::Signing do
   end
 
   # ================================================================
+  #  the signer seam
+  # ================================================================
+  #
+  # The SDK builds the EIP-712 digest and hands only THAT to the signer, so the raw
+  # secret never has to be materialised as a String in the calling process — which is
+  # what makes "the server must never hold the buyer's key" implementable. (#10)
+
+  describe "signing with something other than a key String" do
+    # Stands in for a KMS/HSM client: it can sign a digest, and holds the key
+    # material somewhere this process cannot read.
+    let(:remote_signer) do
+      Class.new do
+        def initialize(key) = @key = key
+        def sign(digest) = @key.sign(digest)
+      end.new(Eth::Key.new(priv: TEST_PRIVATE_KEY.delete_prefix("0x")))
+    end
+
+    it "accepts any object responding to #sign(digest), producing the same signature" do
+      from_string = Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD).to_hex
+      from_signer = Rail0::Signing.sign_payload(remote_signer, SIGNING_PAYLOAD).to_hex
+
+      expect(from_signer).to eq(from_string)
+    end
+
+    it "accepts an Eth::Key the caller already holds" do
+      key = Eth::Key.new(priv: TEST_PRIVATE_KEY.delete_prefix("0x"))
+
+      expect(Rail0::Signing.sign_payload(key, SIGNING_PAYLOAD).to_hex)
+        .to eq(Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD).to_hex)
+    end
+
+    # Without this the bad return produces v: nil and only fails later inside
+    # #to_hex, with nothing pointing at the signer.
+    it "names the signer when it returns something that isn't a 65-byte signature" do
+      broken = Class.new { def sign(_digest) = "0xdeadbeef" }.new
+
+      expect { Rail0::Signing.sign_payload(broken, SIGNING_PAYLOAD) }
+        .to raise_error(ArgumentError, /expected 65/)
+    end
+
+    it "rejects anything that is neither a String nor a signer" do
+      expect { Rail0::Signing.sign_payload(42, SIGNING_PAYLOAD) }
+        .to raise_error(ArgumentError, /responding to #sign/)
+    end
+
+    # sign_transaction is deliberately narrower: Eth::Tx#sign needs a full Eth::Key
+    # (it derives an EIP-155 v from the chain id), so a bare digest-signer cannot
+    # serve there — but an Eth::Key must not have to be exported back to a String.
+    it "sign_transaction accepts an Eth::Key as well as a String" do
+      key = Eth::Key.new(priv: TEST_PRIVATE_KEY.delete_prefix("0x"))
+
+      expect(Rail0::Signing.sign_transaction(UNSIGNED_TX.to_json, key))
+        .to eq(Rail0::Signing.sign_transaction(UNSIGNED_TX.to_json, TEST_PRIVATE_KEY))
+    end
+  end
+
+  # ================================================================
   #  sign_transfer_with_authorization
   # ================================================================
 

@@ -6,16 +6,39 @@ require_relative "request"
 module Rail0
   # @!visibility private
   class HttpClient
-    attr_reader :base_url, :headers, :timeout, :logger, :max_retries, :retry_delay
+    attr_reader :base_url, :timeout, :logger, :max_retries, :retry_delay
 
-    def initialize(base_url:, headers: {}, timeout: 30, logger: nil, max_retries: 0, retry_delay: 0.2)
-      @base_url    = base_url.chomp("/")
-      @headers     = { "Content-Type" => "application/json" }.merge(headers)
-      @timeout     = timeout
-      @logger      = logger || NULL_LOGGER
-      @max_retries = max_retries
-      @retry_delay = retry_delay
+    def initialize(base_url:, headers: {}, token: nil, timeout: 30, logger: nil,
+                   max_retries: 0, retry_delay: 0.2)
+      @base_url        = base_url.chomp("/")
+      @static_headers  = { "Content-Type" => "application/json" }.merge(headers)
+      @token           = token
+      @timeout         = timeout
+      @logger          = logger || NULL_LOGGER
+      @max_retries     = max_retries
+      @retry_delay     = retry_delay
       freeze
+    end
+
+    # Headers for one request.
+    #
+    # A `token` is resolved HERE, per request, rather than baked in at construction:
+    # you need a client to call auth.login, and the login's JWT to build the client
+    # you actually use, so a header fixed at construction forced a whole new client
+    # (and its ten resource objects) on every sign-in and every refresh. Passing a
+    # callable — `token: -> { current_jwt }` — keeps one shared client valid across
+    # token rotations, which is what a long-lived process needs. A String token is
+    # accepted for the simple case, and an explicit Authorization in `headers`
+    # still wins so nothing existing changes. (#11)
+    #
+    # The object stays frozen: what varies is the proc's answer, not this object.
+    def headers
+      return @static_headers if @token.nil? || @static_headers.key?("Authorization")
+
+      resolved = @token.respond_to?(:call) ? @token.call : @token
+      return @static_headers if resolved.nil? || resolved.to_s.empty?
+
+      @static_headers.merge("Authorization" => "Bearer #{resolved}")
     end
 
     def get(path)

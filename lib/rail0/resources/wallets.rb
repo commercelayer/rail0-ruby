@@ -91,6 +91,53 @@ module Rail0
         query = build_query(chain_id: chain_id, token_symbol: token_symbol)
         http.get("/accounts/#{account_id}/wallets/#{id_or_address}/balances#{query}")
       end
+
+      # ── Token holdings ────────────────────────────────────────────────────────
+      # Which tokens a wallet accepts, on which chains. This is what GET
+      # /payment_methods then exposes to buyers, so a merchant onboarding flow that
+      # can create a wallet but not configure its tokens cannot finish. (#12)
+
+      # Accept a token (on a chain) on this wallet.
+      #
+      # Idempotent by (wallet, chain, token): re-adding an existing holding
+      # re-enables it and returns 200 rather than creating a second row (201 is the
+      # first-time answer). `default` makes it the wallet's default token, which is
+      # the one a buyer is offered first.
+      #
+      # @param account_id [String] Account UUID.
+      # @param id_or_address [String] Wallet UUID or 0x address.
+      # @param chain_id [Integer] EVM chain id of the token.
+      # @param token [String] Token address (0x, 40 hex).
+      # @param default [Boolean, nil] Make this the wallet's default token.
+      # @return [Hash] the token holding
+      def add_token(account_id, id_or_address, chain_id:, token:, default: nil)
+        body = { chain_id: chain_id, token: token }
+        body[:default] = default unless default.nil?
+        http.post("/accounts/#{account_id}/wallets/#{id_or_address}/tokens", body)
+      end
+
+      # Stop accepting a token on this wallet (soft delete). Returns HTTP 204.
+      #
+      # `token_id` is the id of the HOLDING as returned by {add_token} / {list}'s
+      # nested `tokens`, not the token's contract address.
+      #
+      # @return [nil]
+      def remove_token(account_id, id_or_address, token_id)
+        http.delete("/accounts/#{account_id}/wallets/#{id_or_address}/tokens/#{token_id}")
+      end
+
+      # Re-enable an existing token holding.
+      # @return [Hash] the token holding
+      def enable_token(account_id, id_or_address, token_id)
+        http.patch("/accounts/#{account_id}/wallets/#{id_or_address}/tokens/#{token_id}/enable")
+      end
+
+      # Disable an existing token holding without forgetting it — the holding (and
+      # its default flag) survives, so re-enabling restores the previous setup.
+      # @return [Hash] the token holding
+      def disable_token(account_id, id_or_address, token_id)
+        http.patch("/accounts/#{account_id}/wallets/#{id_or_address}/tokens/#{token_id}/disable")
+      end
     end
   end
 end
