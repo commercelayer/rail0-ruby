@@ -39,13 +39,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libsecp256k1-dev pkg-config
 
-      - name: Point rbsecp256k1 at the system library
-        run: bundle config set --local build.rbsecp256k1 "--with-system-libraries"
-
-      # bundler-cache runs `bundle install` and caches the result, keyed on
-      # Gemfile.lock — after the build config above, so the native extension is
-      # compiled the right way the first time and then cached.
+      # BUNDLE_BUILD__<GEM> is bundler's env-var spelling of `bundle config set
+      # build.<gem>` — used instead of the CLI because at this point in the job
+      # there IS no `bundle` yet (setup-ruby below installs it; running the CLI
+      # first is exit 127). The env var reaches the `bundle install` that
+      # bundler-cache runs inside setup-ruby, so the native extension is compiled
+      # against the system library the first time and then cached.
       - uses: ruby/setup-ruby@v1
+        env:
+          BUNDLE_BUILD__RBSECP256K1: "--with-system-libraries"
         with:
           # .ruby-version — the one this gem is actually developed against.
           #
