@@ -14,6 +14,9 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ">= 3.0"
 
+  # Not a default gem since Ruby 4.0; required by lib/rail0/default_logger.rb.
+  spec.add_dependency "logger", "~> 1.6"
+
   spec.files         = Dir["lib/**/*.rb", "README.md", "LICENSE"]
   spec.require_paths = ["lib"]
 

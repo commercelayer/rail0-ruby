@@ -46,19 +46,33 @@ module Rail0
       keyword_init: true
     )
 
-    # Generic error envelope. `status` is a machine-readable code; additional context fields (e.g.
-    # `message`, `resource`, `param`, `errors`, `chain_id`) may also be present.
+    # Error envelope. Every error this API returns carries `code` (stable and machine-readable — the
+    # only field to branch on), `title` (a short label) and `detail` (one or two sentences fit to show a
+    # user verbatim). The wording comes from the gateway's error catalogue, so the same condition always
+    # reads the same way wherever it surfaces. `status` and `message` are the pre-code/title/detail
+    # names, derived from the same entry and kept for existing clients: `status` carries the family a
+    # client used to switch on (e.g. `forbidden`, `invalid_state`) where `code` is narrower, and
+    # `message` equals `detail`. Context fields may also be present (`resource`, `param`, `chain_id`,
+    # `token`, `payee`, `errors`).
     ApiErrorBody = Struct.new(
-      :status,   # String
-      :message,  # String
+      :code,     # String
+      :title,    # String
+      :detail,   # String
+      :status,   # String — Legacy: the error family, or the code itself when there is no wider family.
+      :message,  # String — Legacy alias of `detail`.
       keyword_init: true
     )
 
+    # Gateway liveness/readiness. Only the database gates the HTTP code (200 healthy, 503 when the DB is
+    # unreachable); Sidekiq is reported but never flips the code, since the API still serves synchronous
+    # requests when workers are down. `status` is the global signal: `ok` (all good), `degraded` (DB ok
+    # but Sidekiq not ok), `error` (DB down — the only 503).
     Health = Struct.new(
       :status,            # String
       :api_version,       # String
       :contract_version,  # String
       :db,                # String
+      :sidekiq,           # Hash — Worker fleet health (does not gate liveness).
       :active_chains,     # Integer
       :active_contracts,  # Integer
       :timestamp,         # String
@@ -72,12 +86,15 @@ module Rail0
       keyword_init: true
     )
 
-    # Issued after a successful SIWE verification.
+    # Issued after a successful SIWE verification. SIWE alone proves control of the address, so a token
+    # is issued even when the address is not registered to any account; in that case `account_id` and
+    # `name` are null (an account-less session, e.g. a buyer). Clients that require an account must
+    # treat a null `account_id` as not-allowed.
     Session = Struct.new(
       :token,       # String — JWT bearer token.
       :address,     # String — Resolved wallet address.
-      :account_id,  # String
-      :name,        # String — The account's human-readable name.
+      :account_id,  # String — The account owning the signed-in wallet, or null for an account-less (e.g. buyer) session.
+      :name,        # String — The account's human-readable name, or null for an account-less session.
       :expires_at,  # String
       keyword_init: true
     )
@@ -92,12 +109,15 @@ module Rail0
       keyword_init: true
     )
 
-    # Public accepted-token view.
+    # Public accepted-token view. The listing is not implicitly active-only (a payment references its
+    # token address forever, so a retired token must stay resolvable), so `active` tells a usable token
+    # from a retired one.
     Token = Struct.new(
       :chain_id,  # Integer
       :symbol,    # String
       :address,   # String
       :decimals,  # Integer
+      :active,    # Boolean — False for a retired token: still resolvable for historical payments, but not usable for a new one.
       keyword_init: true
     )
 
@@ -187,8 +207,10 @@ module Rail0
       :payment_id,            # String
       :operation,             # String
       :status,                # String
-      :error_code,            # Decoded on-chain failure code (null unless status is "failed"): the RAIL0 custom error in snake_case (e.g. "not_payee"), or "revert" when the selector is unknown. The raw revert bytes are not exposed.
-      :error_message,         # Human-readable form of error_code (e.g. "NotPayee"); null unless status is "failed".
+      :error_code,            # Decoded failure code, null unless `status` is "failed". Same catalogue as an error body's `code`: a RAIL0 custom error (`not_payee`), a token-level revert (`insufficient_token_balance`, `invalid_token_signature`, `authorization_already_used`), a Solidity panic, or a rejection that stopped the broadcast before the chain saw it (`insufficient_gas_funds`, `nonce_too_low`).
+      :error_title,           # String — Short label for `error_code`; null unless failed.
+      :error_detail,          # String — Sentence explaining the failure; null unless failed. Carries the chain's own words when the revert was not one the gateway recognises.
+      :error_message,         # Legacy alias of `error_detail`.
       :unsigned_transaction,
       :transaction_hash,
       :amount,

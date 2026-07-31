@@ -10,6 +10,7 @@ require "resources/wallets"
 require "resources/payments"
 require "resources/disputes"
 require "resources/webhooks"
+require "resources/analytics"
 
 module Rail0
   # Entry point for the RAIL0 SDK.
@@ -40,8 +41,11 @@ module Rail0
     #   @return [Resources::Disputes] Account-level dispute list (JWT).
     # @!attribute [r] webhooks
     #   @return [Resources::Webhooks] Webhook subscription management (JWT).
+    # @!attribute [r] analytics
+    #   @return [Resources::Analytics] Account-scoped payment analytics (JWT).
     attr_reader :auth, :chains, :tokens, :health, :payment_methods,
-                :wallets, :payments, :disputes, :webhooks
+                :wallets, :payments, :disputes, :webhooks, :analytics
+
 
     # @param base_url [String] Base URL of the RAIL0 API, e.g. "https://api.rail0.xyz".
     # @param headers [Hash] Default headers merged into every request (e.g. Authorization).
@@ -63,6 +67,7 @@ module Rail0
       @payments        = Resources::Payments.new(http)
       @disputes        = Resources::Disputes.new(http)
       @webhooks        = Resources::Webhooks.new(http)
+      @analytics       = Resources::Analytics.new(http)
       freeze
     end
   end
