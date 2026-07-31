@@ -1,0 +1,64 @@
+# Run the spec suite on every push and pull request.
+#
+# There was no CI here. The reason is worth recording, because it is also the thing
+# most likely to break this workflow: the suite is unrunnable until `rbsecp256k1`
+# compiles, and that gem is a native extension pulled in transitively
+# (siwe-rb → eth → rbsecp256k1). Its own bundled-source build is what fails, so the
+# fix is to build against the system library — see the apt step below.
+#
+# On macOS the equivalent locally is:
+#
+#   brew install secp256k1
+#   bundle config set --local build.rbsecp256k1 \
+#     "--with-system-libraries --with-opt-dir=$(brew --prefix secp256k1)"
+#
+# BOTH flags are needed there: with --with-system-libraries alone the header check
+# passes via pkg-config but the compile still dies on 'secp256k1.h: file not found',
+# because the include path never reaches the Makefile.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  spec:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # libsecp256k1-dev + pkg-config are what let rbsecp256k1 build against the
+      # system library instead of its bundled source, which is the build that fails.
+      - name: Install libsecp256k1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsecp256k1-dev pkg-config
+
+      - name: Point rbsecp256k1 at the system library
+        run: bundle config set --local build.rbsecp256k1 "--with-system-libraries"
+
+      # bundler-cache runs `bundle install` and caches the result, keyed on
+      # Gemfile.lock — after the build config above, so the native extension is
+      # compiled the right way the first time and then cached.
+      - uses: ruby/setup-ruby@v1
+        with:
+          # .ruby-version — the one this gem is actually developed against.
+          #
+          # Deliberately a single version, not a matrix. The gemspec promises
+          # `required_ruby_version >= 3.0`, and that promise is currently UNVERIFIED:
+          # adding a 3.0 job without checking first risks landing a red build on day
+          # one, which teaches everyone to ignore CI. Widening the matrix to the
+          # declared floor is a follow-up that needs one confirming run — and it
+          # matters, since this gem is a candidate client for Commerce Layer core,
+          # which pins its own Ruby.
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      # The default rake task is the spec suite (Rakefile: task default: :spec).
+      - name: Specs
+        run: bundle exec rake
