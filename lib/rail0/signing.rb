@@ -3,10 +3,14 @@
 require "json"
 
 begin
+  original_verbose = $VERBOSE
+  $VERBOSE = nil
   require "eth"
-rescue LoadError
-  raise LoadError,
+rescue LoadError => e
+  raise e,
     "Rail0::Signing requires the 'eth' gem. Add `gem 'eth', '~> 0.5'` to your Gemfile."
+ensure
+  $VERBOSE = original_verbose
 end
 
 module Rail0
@@ -36,6 +40,10 @@ module Rail0
       #
       # @return [String] "0x" + r (32 bytes) + s (32 bytes) + v (1 byte), 132 chars total.
       def to_hex
+        unless r.start_with?("0x") && s.start_with?("0x")
+          raise ArgumentError, "r and s must be 0x-prefixed hex strings"
+        end
+
         "0x#{r[2..]}#{s[2..]}#{v.to_s(16).rjust(2, '0')}"
       end
     end
@@ -64,10 +72,6 @@ module Rail0
       keyword_init: true
     )
 
-    # ================================================================
-    #  EIP-712 type strings
-    # ================================================================
-
     DOMAIN_TYPE   = "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     TRANSFER_TYPE = "TransferWithAuthorization(address from,address to,uint256 value," \
                     "uint256 validAfter,uint256 validBefore,bytes32 nonce)"
@@ -81,10 +85,6 @@ module Rail0
     private_constant :DOMAIN_TYPE, :TRANSFER_TYPE, :RECEIVE_TYPE,
                      :DOMAIN_TYPEHASH, :TRANSFER_TYPEHASH, :RECEIVE_TYPEHASH
 
-    # ================================================================
-    #  ABI encoding helpers
-    # ================================================================
-
     def self.hex_to_bytes(hex)
       h = hex.start_with?("0x") ? hex[2..] : hex
       [h].pack("H*")
@@ -94,7 +94,6 @@ module Rail0
       "\x00" * 12 + hex_to_bytes(address)
     end
 
-    # Pack an arbitrary-precision non-negative integer into 32 big-endian bytes.
     def self.uint256_to_bytes32(value)
       hex = Integer(value).to_s(16).rjust(64, "0")
       [hex].pack("H*")
@@ -105,10 +104,6 @@ module Rail0
     end
 
     private_class_method :hex_to_bytes, :abi_address, :uint256_to_bytes32, :bytes_to_hex
-
-    # ================================================================
-    #  EIP-712 digest construction
-    # ================================================================
 
     def self.hash_domain(domain)
       Eth::Util.keccak256(
@@ -143,20 +138,14 @@ module Rail0
 
     private_class_method :hash_domain, :hash_struct, :build_digest
 
-    # ================================================================
-    #  Internal sign helper
-    # ================================================================
-
     def self.do_sign(private_key, domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash: TRANSFER_TYPEHASH)
       key_hex = private_key.start_with?("0x") ? private_key[2..] : private_key
       key     = Eth::Key.new(priv: key_hex)
       digest  = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce, typehash: typehash)
 
-      # eth 0.5.17+: Eth::Key#sign(blob) — pass the digest directly; the gem does not re-hash it.
       sig       = key.sign(digest)
       sig_bytes = [sig].pack("H*")
 
-      # Ethereum compact signature layout: r (32 bytes) | s (32 bytes) | v (1 byte, 27 or 28).
       Eip3009Signature.new(
         v: sig_bytes.getbyte(64),
         r: bytes_to_hex(sig_bytes[0, 32]),
@@ -165,10 +154,6 @@ module Rail0
     end
 
     private_class_method :do_sign
-
-    # ================================================================
-    #  Public API
-    # ================================================================
 
     # Build and sign the EIP-1559 (type-2) transaction described by a prepare
     # step's +unsigned_transaction+ and return the signed raw transaction as a
@@ -234,8 +219,6 @@ module Rail0
         verifying_contract: d[:verifyingContract]
       )
 
-      # Use ReceiveWithAuthorization typehash when primaryType indicates a
-      # receiveWithAuthorization call (e.g. refund). Default: TransferWithAuthorization.
       th = signing_payload[:primaryType] == "ReceiveWithAuthorization" ? RECEIVE_TYPEHASH : TRANSFER_TYPEHASH
 
       do_sign(
@@ -316,15 +299,7 @@ module Rail0
     # @param params [SignPaymentParams]
     # @return [Eip3009Signature]
     def self.sign_charge(params)
-      do_sign(
-        params.private_key, params.token_domain,
-        from:         params.payment[:payer],
-        to:           params.contract_address,
-        value:        params.payment[:amount].to_i,
-        valid_after:  0,
-        valid_before: params.payment[:authorization_expiry],
-        nonce:        params.nonce
-      )
+      sign_authorize(params)
     end
   end
 end

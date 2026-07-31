@@ -15,7 +15,7 @@ PAYEE_KEY  = ENV.fetch("PAYEE_PRIVATE_KEY")   # 0x-prefixed hex
 ACCOUNT_ID = ENV.fetch("RAIL0_ACCOUNT_ID")    # merchant account UUID
 BUYER      = ENV.fetch("PAYER_ADDRESS")       # payer's 0x address
 
-client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEBUG_LOGGER)
+client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEFAULT_LOGGER)
 
 # ── Step 0 — discover the merchant's accepted payment methods (public) ────────
 wallets = client.payment_methods.list(account_id: ACCOUNT_ID)

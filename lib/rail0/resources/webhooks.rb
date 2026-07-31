@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "query"
+require "query"
 
 module Rail0
   module Resources
@@ -24,8 +24,11 @@ module Rail0
         payments.dispute_closed
       ].freeze
 
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # List the account's webhooks.
@@ -39,7 +42,7 @@ module Rail0
       def list(topic: nil, active: nil, circuit_state: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(topic: topic, active: active, circuit_state: circuit_state,
                             sort: sort, page: page, per_page: per_page)
-        @http.get_list("/webhooks#{query}")
+        http.get_list("/webhooks#{query}")
       end
 
       # Register a new webhook. The response includes the one-time shared_secret
@@ -49,14 +52,14 @@ module Rail0
       # @param topic [String] One of {TOPICS}.
       # @return [Hash] webhook record including shared_secret
       def create(name:, callback_url:, topic:)
-        @http.post("/webhooks", { name: name, callback_url: callback_url, topic: topic })
+        http.post("/webhooks", { name: name, callback_url: callback_url, topic: topic })
       end
 
       # Fetch a single webhook.
       # @param id [String] Webhook UUID.
       # @return [Hash]
       def get(id)
-        @http.get("/webhooks/#{id}")
+        http.get("/webhooks/#{id}")
       end
 
       # Update a webhook's name, callback_url, and/or topic.
@@ -70,35 +73,35 @@ module Rail0
         body[:name]         = name         unless name.nil?
         body[:callback_url] = callback_url unless callback_url.nil?
         body[:topic]        = topic        unless topic.nil?
-        @http.patch("/webhooks/#{id}", body)
+        http.patch("/webhooks/#{id}", body)
       end
 
       # Re-enable a disabled webhook.
       # @param id [String] Webhook UUID.
       # @return [Hash]
       def enable(id)
-        @http.put("/webhooks/#{id}/enable")
+        http.put("/webhooks/#{id}/enable")
       end
 
       # Disable a webhook (stops deliveries without deleting it).
       # @param id [String] Webhook UUID.
       # @return [Hash]
       def disable(id)
-        @http.put("/webhooks/#{id}/disable")
+        http.put("/webhooks/#{id}/disable")
       end
 
       # Generate a new shared secret, returned once on the response.
       # @param id [String] Webhook UUID.
       # @return [Hash] webhook record including the new shared_secret
       def rotate_secret(id)
-        @http.put("/webhooks/#{id}/rotate_secret")
+        http.put("/webhooks/#{id}/rotate_secret")
       end
 
       # Reset the delivery circuit breaker and re-enable the webhook.
       # @param id [String] Webhook UUID.
       # @return [Hash]
       def reset_circuit(id)
-        @http.put("/webhooks/#{id}/reset_circuit")
+        http.put("/webhooks/#{id}/reset_circuit")
       end
 
       # List delivery attempts for a webhook.
@@ -116,14 +119,14 @@ module Rail0
                           until_time: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(status: status, topic: topic, payment_id: payment_id, since: since,
                             until: until_time, sort: sort, page: page, per_page: per_page)
-        @http.get_list("/webhooks/#{id}/event_callbacks#{query}")
+        http.get_list("/webhooks/#{id}/event_callbacks#{query}")
       end
 
       # Delete a webhook. Returns HTTP 204.
       # @param id [String] Webhook UUID.
       # @return [nil]
       def delete(id)
-        @http.delete("/webhooks/#{id}")
+        http.delete("/webhooks/#{id}")
       end
     end
   end

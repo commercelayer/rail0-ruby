@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "query"
+require "query"
 
 module Rail0
   module Resources
@@ -14,8 +14,11 @@ module Rail0
     class Wallets
       include Query
 
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # List the account's wallets, each with nested token holdings.
@@ -32,7 +35,7 @@ module Rail0
                sort: nil, page: nil, per_page: nil)
         query = build_query(chain_id: chain_id, token_symbol: token_symbol, active: active,
                             default: default, sort: sort, page: page, per_page: per_page)
-        @http.get_list("/accounts/#{account_id}/wallets#{query}")
+        http.get_list("/accounts/#{account_id}/wallets#{query}")
       end
 
       # Fetch a single wallet by its id or 0x address.
@@ -40,7 +43,7 @@ module Rail0
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @return [Hash] id, address, label, active
       def get(account_id, id_or_address)
-        @http.get("/accounts/#{account_id}/wallets/#{id_or_address}")
+        http.get("/accounts/#{account_id}/wallets/#{id_or_address}")
       end
 
       # Add a wallet to the account.
@@ -51,7 +54,7 @@ module Rail0
       def create(account_id, address:, label: nil)
         body = { address: address }
         body[:label] = label unless label.nil?
-        @http.post("/accounts/#{account_id}/wallets", body)
+        http.post("/accounts/#{account_id}/wallets", body)
       end
 
       # Update a wallet's label and/or active status.
@@ -64,7 +67,7 @@ module Rail0
         body = {}
         body[:label]  = label  unless label.nil?
         body[:active] = active unless active.nil?
-        @http.patch("/accounts/#{account_id}/wallets/#{id_or_address}", body)
+        http.patch("/accounts/#{account_id}/wallets/#{id_or_address}", body)
       end
 
       # Soft-delete (deactivate) a wallet. Returns HTTP 204.
@@ -72,7 +75,7 @@ module Rail0
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @return [nil]
       def delete(account_id, id_or_address)
-        @http.delete("/accounts/#{account_id}/wallets/#{id_or_address}")
+        http.delete("/accounts/#{account_id}/wallets/#{id_or_address}")
       end
 
       # Read a wallet's live on-chain balances across the configured chains. Each
@@ -86,7 +89,7 @@ module Rail0
       # @return [Hash] wallet_id, address, balances
       def balances(account_id, id_or_address, chain_id: nil, token_symbol: nil)
         query = build_query(chain_id: chain_id, token_symbol: token_symbol)
-        @http.get("/accounts/#{account_id}/wallets/#{id_or_address}/balances#{query}")
+        http.get("/accounts/#{account_id}/wallets/#{id_or_address}/balances#{query}")
       end
     end
   end

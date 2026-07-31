@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "query"
+require "query"
 
 module Rail0
   module Resources
@@ -14,8 +14,11 @@ module Rail0
     class PaymentMethods
       include Query
 
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # List a merchant's active payment methods. Provide EXACTLY ONE handle:
@@ -27,7 +30,7 @@ module Rail0
       # @param address [String, nil] A single merchant wallet address (0x).
       # @return [Array<Hash>] wallets, each with nested active tokens.
       def list(account_id: nil, address: nil)
-        @http.get("/payment_methods#{build_query(account_id: account_id, address: address)}")
+        http.get("/payment_methods#{build_query(account_id: account_id, address: address)}")
       end
     end
   end

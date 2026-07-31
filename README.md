@@ -12,7 +12,7 @@ lifecycle plus account, wallet, catalog, and webhook management. It mirrors the
 
 ## Requirements
 
-- Ruby ≥ 2.6
+- Ruby ≥ 3.0
 - For SIWE login and off-chain signing: `eth` (`~> 0.5`) and `siwe-rb` (`~> 0.2`)
 
 The core HTTP client has **no runtime dependencies** (Ruby stdlib only). The `eth`
@@ -305,8 +305,14 @@ client.payments.sign(rail0_id, { signature: sig.to_hex })
 Pass any callable as `logger` to receive a `Rail0::LogEntry` per request attempt.
 
 ```ruby
-client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEBUG_LOGGER)
-# [rail0] GET 200 https://.../payments/0x… 87ms
+client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEFAULT_LOGGER)
+# D, [...] DEBUG -- : [rail0] GET 200 https://.../payments/0x… 87ms
+
+# Rail0::DefaultLogger is a Logger subclass, so it takes any Logger.new argument:
+client = Rail0::Client.new(
+  base_url: "https://api.rail0.xyz",
+  logger:   Rail0::DefaultLogger.new("rail0.log", level: Logger::WARN)
+)
 
 # Or route into your own logger:
 log = Logger.new($stdout)
@@ -365,7 +371,7 @@ Rail0::Client.new(
   timeout:     30,                                # seconds (default 30)
   max_retries: 0,                                 # network-error retries (default 0)
   retry_delay: 0.2,                               # base delay, doubles each attempt
-  logger:      Rail0::DEBUG_LOGGER                # optional
+  logger:      Rail0::DEFAULT_LOGGER               # optional
 )
 ```
 
@@ -378,7 +384,9 @@ gen/generate.rb        regenerates lib/rail0/types.rb from the gateway OpenAPI s
 
 lib/rail0/
   client.rb            Rail0::Client — entry point
-  http_client.rb       internal HTTP client (Net::HTTP, retry, pagination, logging)
+  http_client.rb       thin per-verb facade (get/post/put/patch/delete) over Request
+  request.rb           Rail0::Request — one HTTP call: retry, pagination, error mapping, logging
+  default_logger.rb    Rail0::LogEntry + Rail0::DefaultLogger (Logger subclass) for `logger:`
   api_error.rb         Rail0::ApiError (code/title/detail + #hint)
   error_hints.rb       Rail0.describe_error — per-code next steps, shared with the other SDKs
   signing.rb           EIP-3009 + EIP-1559 signing (requires 'eth')
@@ -402,7 +410,7 @@ lib/rail0/
 
 ```bash
 bundle install
-bundle exec rspec        # run the test suite
+bundle exec rake         # run the test suite (default task)
 
 # Regenerate lib/rail0/types.rb after a gateway schema change:
 #   defaults to ../rail0-gateway/docs/openapi.json, or set RAIL0_SCHEMA_PATH.

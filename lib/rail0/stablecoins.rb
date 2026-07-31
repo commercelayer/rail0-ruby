@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Rail0
   # Stablecoin addresses and capabilities for supported EVM networks.
   #
@@ -96,10 +98,7 @@ module Rail0
     # @param chain [String]
     # @return [Array<StablecoinToken>]
     def self.eip3009_tokens(chain)
-      c = REGISTRY[chain] or return []
-      c.tokens.each_with_object([]) do |(symbol, info), arr|
-        arr << StablecoinToken.new(symbol: symbol, address: info.address, decimals: info.decimals) if info.eip3009
-      end
+      tokens_supporting(chain, :eip3009)
     end
 
     # Returns all tokens on a chain that support EIP-2612 (permit).
@@ -107,10 +106,16 @@ module Rail0
     # @param chain [String]
     # @return [Array<StablecoinToken>]
     def self.eip2612_tokens(chain)
+      tokens_supporting(chain, :eip2612)
+    end
+
+    def self.tokens_supporting(chain, capability)
       c = REGISTRY[chain] or return []
       c.tokens.each_with_object([]) do |(symbol, info), arr|
-        arr << StablecoinToken.new(symbol: symbol, address: info.address, decimals: info.decimals) if info.eip2612
+        arr << StablecoinToken.new(symbol: symbol, address: info.address, decimals: info.decimals) if info.public_send(capability)
       end
     end
+
+    private_class_method :tokens_supporting
   end
 end

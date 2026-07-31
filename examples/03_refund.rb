@@ -14,7 +14,7 @@ require "rail0/signing"
 PAYEE_KEY  = ENV.fetch("PAYEE_PRIVATE_KEY")
 PAYMENT_ID = ENV.fetch("RAIL0_PAYMENT_ID")   # UUID or 0x-prefixed rail0_id
 
-client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEBUG_LOGGER)
+client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEFAULT_LOGGER)
 
 # Authenticate the payee (refund is a payee/JWT operation).
 auth = client.auth.login(private_key: PAYEE_KEY, domain: "api.rail0.xyz")

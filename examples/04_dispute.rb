@@ -11,7 +11,7 @@ require "rail0/signing"
 PAYER_KEY  = ENV.fetch("PAYER_PRIVATE_KEY")   # the payer signs dispute txs
 PAYMENT_ID = ENV.fetch("RAIL0_PAYMENT_ID")    # UUID or 0x-prefixed rail0_id
 
-client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEBUG_LOGGER)
+client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEFAULT_LOGGER)
 
 # ── Open a dispute ────────────────────────────────────────────────────────────
 # reason is an optional bytes32 code; omit it to default to zero server-side.

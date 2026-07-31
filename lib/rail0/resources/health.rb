@@ -4,8 +4,11 @@ module Rail0
   module Resources
     # Gateway liveness/readiness check (GET /health, no auth).
     class Health
+      attr_reader :http
+
       def initialize(http)
         @http = http
+        freeze
       end
 
       # Report gateway health, including database connectivity. The gateway
@@ -13,7 +16,7 @@ module Rail0
       # unreachable.
       # @return [Hash] status, api_version, contract_version, db, active_chains, active_contracts, timestamp
       def get
-        @http.get("/health")
+        http.get("/health")
       end
     end
   end
