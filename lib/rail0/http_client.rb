@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "default_logger"
-require "request"
+require_relative "default_logger"
+require_relative "request"
 
 module Rail0
   # @!visibility private

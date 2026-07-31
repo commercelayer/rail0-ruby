@@ -37,17 +37,25 @@ A full authorize → capture flow. Every on-chain operation is two-phase: a
 `*_prepare` call returns an unsigned transaction, which you sign locally with
 `Rail0::Signing.sign_transaction`, then the matching submit call broadcasts it.
 
+**The whole `/payments` surface is authenticated**, and `create` requires the
+caller to be the payer — so sign in first (see
+[Authentication](#authentication-siwe)).
+
 ```ruby
 require "rail0"
 require "rail0/signing"
 
-client = Rail0::Client.new(base_url: "https://api.rail0.xyz")
+GATEWAY = "https://api.rail0.xyz"
+
+# 0. Sign in as the payer — POST /payments requires payer == caller.
+auth   = Rail0::Client.new(base_url: GATEWAY).auth.login(private_key: BUYER_PRIVATE_KEY, domain: "api.rail0.xyz")
+client = Rail0::Client.new(base_url: GATEWAY, headers: { "Authorization" => "Bearer #{auth[:token]}" })
 
 # 1. Payer creates the payment — response embeds the EIP-3009 signing payload.
 payment = client.payments.create(
   chain_id: 84532,
   mode:     "authorize",
-  amount:   "50000000",       # 50 USDC (6 decimals)
+  amount:   "50.00",          # human decimals, NOT base units
   token:    "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
   payer:    "0xBuyer…",
   payee:    "0xMerchant…"
@@ -71,7 +79,7 @@ loop do
 end
 
 # 5. Payee captures the escrowed funds (partial capture is supported).
-cap = client.payments.capture_prepare(rail0_id, "50000000")
+cap = client.payments.capture_prepare(rail0_id, "50.00")
 raw = Rail0::Signing.sign_transaction(cap[:unsigned_transaction], MERCHANT_PRIVATE_KEY)
 client.payments.capture(rail0_id, { signed_transaction: raw })
 ```
@@ -110,14 +118,27 @@ client.payments.submit_by_hash(rail0_id, "capture", { transaction_hash: "0x…" 
 | `close_dispute_prepare` + `close_dispute` | payer | Close an open dispute |
 
 **Payment statuses:** `unsigned`, `signed`, `authorized`, `charged`, `captured`,
-`partially_captured`, `voided`, `released`, `refunded`.
+`partially_captured`, `voided`, `released`, `refunded` — plus `partially_refunded`,
+which is no longer produced (a partial refund deliberately leaves the status alone)
+but is still a legal value on historical rows, so don't write an exhaustive `case`
+that raises on it.
 **Transaction statuses:** `pending`, `submitting`, `submitted`, `confirmed`, `failed`.
 
 ## Authentication (SIWE)
 
-JWT-protected endpoints (wallet management, webhooks, `payments.list`) need a
-Sign-In With Ethereum token. `login` runs the full handshake; pass the returned
-token to the client via `headers`.
+Sign-In With Ethereum gates **the entire `/payments` sub-tree** (create, sign,
+every prepare/submit, reads and list) plus wallet management, webhooks, disputes
+and analytics. The public surface is small: `chains`, `tokens`, `health` and
+`payment_methods` (buyer-facing discovery). `login` runs the full handshake; pass
+the returned token to the client via `headers`.
+
+Two role rules are worth knowing before the first call, because both surface as a
+403 rather than a validation error:
+
+- `payments.create` requires the caller to **be the payer** (`payer_must_be_caller`);
+- the merchant operations (authorize, capture, charge, void, refund) are
+  **payee-only**, while `release` and the prepare steps accept either participant,
+  and `dispute`/`close_dispute` submits are **payer-only**.
 
 ```ruby
 auth = client.auth.login(private_key: "0x…", domain: "api.rail0.xyz")
@@ -202,11 +223,11 @@ client.disputes.list(status: "closed", sort: "-opened_at")
 
 ```ruby
 # Phase 1 — amount only → returns a signing payload for the payee to sign.
-p1  = client.payments.refund_prepare(rail0_id, amount: "20000000")
+p1  = client.payments.refund_prepare(rail0_id, amount: "20.00")
 sig = Rail0::Signing.sign_payload(MERCHANT_PRIVATE_KEY, p1[:signing_payload])
 
 # Phase 2 — amount + signature → returns the unsigned on-chain tx.
-p2  = client.payments.refund_prepare(rail0_id, amount: "20000000", signature: sig.to_hex)
+p2  = client.payments.refund_prepare(rail0_id, amount: "20.00", signature: sig.to_hex)
 raw = Rail0::Signing.sign_transaction(p2[:unsigned_transaction], MERCHANT_PRIVATE_KEY)
 client.payments.refund(rail0_id, { signed_transaction: raw })
 ```

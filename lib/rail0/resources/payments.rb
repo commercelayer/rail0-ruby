@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "query"
+require_relative "query"
 
 module Rail0
   module Resources
@@ -35,8 +35,11 @@ module Rail0
       # @param rail0_id [String, nil] Filter by the logical on-chain payment id (0x…).
       # @param chain_id [Integer, nil] Filter by the payment's chain.
       # @param disputed [Boolean, nil] Filter by whether an open dispute exists.
-      # @param min_amount [String, nil] Minimum amount in token base units (inclusive).
-      # @param max_amount [String, nil] Maximum amount in token base units (inclusive).
+      # @param min_amount [String, nil] Minimum amount in token BASE UNITS (inclusive).
+      # @param max_amount [String, nil] Maximum amount in token BASE UNITS (inclusive).
+      #   These two really are base units — the filter runs against the stored column.
+      #   Amounts you SEND (create, capture, refund) are human decimals instead, which
+      #   the gateway scales by the token's decimals. The two units coexist in the API.
       # @param created_from [String, nil] Only payments created at/after this ISO-8601 time.
       # @param created_to [String, nil] Only payments created at/before this ISO-8601 time.
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
@@ -62,7 +65,7 @@ module Rail0
       # creating a new one.
       #
       # Accepts either a params Hash or keyword fields:
-      #   create(chain_id: 84532, mode: "authorize", amount: "100000000", token: "0x…", payer: "0x…", payee: "0x…")
+      #   create(chain_id: 84532, mode: "authorize", amount: "100.00", token: "0x…", payer: "0x…", payee: "0x…")
       #   create({ chain_id: 84532, ... }, idempotency_key: "order-42")
       #
       # @param params [Hash, nil] chain_id, mode, amount, token, payer, payee, description (opt), metadata (opt).
@@ -205,7 +208,7 @@ module Rail0
       # Phase 1: pass only +amount+ → returns a signing payload for the payee to sign.
       # Phase 2: pass +amount+ and +signature+ → returns the unsigned refund tx.
       # @param id [String] Payment UUID or rail0_id.
-      # @param amount [String] Amount to refund (token base units).
+      # @param amount [String] Amount to refund, as a human decimal (e.g. "20.00").
       # @param signature [String, nil] Payee's EIP-3009 signature (0x…), phase 2 only.
       # @return [Hash]
       def refund_prepare(id, amount:, signature: nil)

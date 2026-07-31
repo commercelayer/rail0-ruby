@@ -1,9 +1,10 @@
 # Open and close a dispute on a payment.
 #
-# Disputes are payer-driven and authorized on-chain (no JWT). They are
-# signal-only: opening a dispute flips the payment's `disputed` flag; it does not
-# move funds. The payer follows the same prepare → sign → submit pattern as any
-# other on-chain operation.
+# Disputes are payer-driven and authorized on-chain, AND — like everything else
+# under /payments — they need a SIWE session: prepare is participant-only, submit
+# is payer-only. They are signal-only: opening a dispute flips the payment's
+# `disputed` flag; it does not move funds. The payer follows the same
+# prepare → sign → submit pattern as any other on-chain operation.
 
 require "rail0"
 require "rail0/signing"
@@ -11,7 +12,16 @@ require "rail0/signing"
 PAYER_KEY  = ENV.fetch("PAYER_PRIVATE_KEY")   # the payer signs dispute txs
 PAYMENT_ID = ENV.fetch("RAIL0_PAYMENT_ID")    # UUID or 0x-prefixed rail0_id
 
-client = Rail0::Client.new(base_url: "https://api.rail0.xyz", logger: Rail0::DEFAULT_LOGGER)
+GATEWAY = "https://api.rail0.xyz"
+DOMAIN  = "api.rail0.xyz"   # must be one of the gateway's allowed SIWE domains
+
+# The payer signs in: dispute prepare is participant-only, dispute submit is payer-only.
+auth   = Rail0::Client.new(base_url: GATEWAY).auth.login(private_key: PAYER_KEY, domain: DOMAIN)
+client = Rail0::Client.new(
+  base_url: GATEWAY,
+  headers:  { "Authorization" => "Bearer #{auth[:token]}" },
+  logger:   Rail0::DEFAULT_LOGGER
+)
 
 # ── Open a dispute ────────────────────────────────────────────────────────────
 # reason is an optional bytes32 code; omit it to default to zero server-side.
