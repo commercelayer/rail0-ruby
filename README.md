@@ -228,6 +228,8 @@ the other three is the **holding's** id, not the token address.
 
 ```ruby
 client.payments.create(params, idempotency_key: nil)  # or keyword fields
+# Reusing a key for DIFFERENT terms raises Rail0::ApiError with code
+# "idempotency_key_reused" (422) instead of returning the first payment.
 client.payments.get(id)
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
 client.payments.transactions(id, operation: "capture")

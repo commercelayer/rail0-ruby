@@ -46,6 +46,7 @@ module Rail0
     "payment_already_exists" => "a payment with this id already exists on-chain",
     # Ported from rail0-go, which had drifted five codes ahead of this table (#13).
     "unsupported_payment_method" => "the payee (merchant) doesn't accept this token/chain — check the merchant's payment methods",
+    "idempotency_key_reused" => "that Idempotency-Key was already used for a payment with different terms — reuse it only to retry the same request, or pick a new key",
     "unknown_token" => "the token isn't configured on this chain",
     "no_active_contract" => "no active RAIL0 contract on that chain",
     "missing_param" => "a required parameter is missing from the request",
