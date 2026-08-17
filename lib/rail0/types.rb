@@ -164,6 +164,8 @@ module Rail0
     Payment = Struct.new(
       :id,                    # String
       :contract_id,           # String
+      :chain_id,              # Integer — EVM chain id of the deployment. On list rows too: `amount` is
+      #                         base units, and the token's decimals resolve from `token` PLUS its chain.
       :rail0_id,              # String — Protocol-level identifier (66-char hex).
       :status,                # String
       :mode,                  # String
@@ -269,7 +271,9 @@ module Rail0
     SyncBlockchain = Struct.new(
       :chain_id,                # Integer
       :start_block,             # Integer
-      :required_confirmations,  # Integer
+      :required_confirmations,  # Integer — Fallback burial depth, used where the chain serves no finality tag.
+      :finality_tag,            # String — Which block the chain calls settled ("safe", "finalized" or
+      #                           "depth"); the indexer gates every notify on it.
       :explorer_url,            # Block explorer base URL; null when the chain has none.
       :network_type,            # String — "testnet" or "mainnet"; selects which chains a deployment indexes.
       :rpc_urls,                # Array — Ordered list of public RPC endpoints tried in turn (serial fallback).

@@ -243,6 +243,11 @@ client.disputes.list(status: "closed", sort: "-opened_at")
 `payments.list`/`transactions`/`disputes` and `disputes.list` return a paginated
 `{ data:, meta: { page:, per_page:, total: } }` envelope.
 
+Every payment row carries `chain_id`, list rows included. You need it to display
+an amount: `amount` is in base units and the token's decimals resolve from
+`token` **plus** its chain — an address alone identifies a token only within one
+chain — so a listing never needs a `get(id)` per row to render totals.
+
 ### Refund (two-phase EIP-3009)
 
 ```ruby
