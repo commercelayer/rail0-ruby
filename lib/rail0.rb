@@ -11,6 +11,7 @@
 require_relative "rail0/version"
 require_relative "rail0/error_hints"
 require_relative "rail0/api_error"
+require_relative "rail0/backoff"
 require_relative "rail0/default_logger"
 require_relative "rail0/request"
 require_relative "rail0/http_client"
