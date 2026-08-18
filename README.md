@@ -116,6 +116,7 @@ client.payments.submit_by_hash(rail0_id, "capture", { transaction_hash: "0x…" 
 | `refund_prepare` (phase 1+2) + `refund` | payee | Return captured funds to the payer via EIP-3009 |
 | `dispute_prepare` + `dispute` | payer | Open a dispute (signal-only) |
 | `close_dispute_prepare` + `close_dispute` | payer | Close an open dispute |
+| `dispute_submit_by_hash` / `close_dispute_submit_by_hash` | payer | Report a dispute tx the wallet already broadcast |
 
 **Payment statuses:** `unsigned`, `signed`, `authorized`, `charged`, `captured`,
 `partially_captured`, `voided`, `released`, `refunded` — plus `partially_refunded`,
@@ -139,6 +140,12 @@ Two role rules are worth knowing before the first call, because both surface as 
 - the merchant operations (authorize, capture, charge, void, refund) are
   **payee-only**, while `release` and the prepare steps accept either participant,
   and `dispute`/`close_dispute` submits are **payer-only**.
+
+A wallet that signs *and broadcasts* in one step (MetaMask) reports the result by hash
+instead of handing over a signed transaction: `submit_by_hash` covers the merchant
+operations, and the two dispute paths have their own payer-only methods
+(`dispute_submit_by_hash`, `close_dispute_submit_by_hash`) because `dispute/close` is two
+path segments and does not fit the generic shape.
 
 ```ruby
 auth = client.auth.login(private_key: "0x…", domain: "api.rail0.xyz")
@@ -167,7 +174,14 @@ Lower-level building blocks are also available:
 ```ruby
 nonce   = client.auth.nonce                                  # POST /auth/nonces
 session = client.auth.verify(message: siwe_msg, signature: sig)  # POST /auth
+client.auth.logout                                           # POST /auth/logout
 ```
+
+`logout` revokes **the token this client carries**, not every session for the address —
+signing out one process leaves the others signed in. Read the answer: the gateway's
+denylist **fails open** by design (a store outage must not sign out the whole platform),
+so `{ revoked: false }` means the token is *still usable* until it expires, and the
+caller should treat its own copy as compromised rather than assume the session is gone.
 
 ## Catalog (public)
 

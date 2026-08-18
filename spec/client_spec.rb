@@ -126,6 +126,23 @@ RSpec.describe Rail0::Client do
     end
   end
 
+  describe "auth.logout" do
+    it "POSTs /auth/logout and returns the revocation outcome" do
+      stub = stub_post("/auth/logout", { revoked: true })
+      result = client.auth.logout
+      expect(stub).to have_been_requested
+      expect(result[:revoked]).to be(true)
+    end
+
+    it "reports revoked: false rather than treating it as success" do
+      # The gateway's denylist fails open by design — a store outage must not sign out
+      # the whole platform — so false means the token is STILL USABLE until it expires.
+      # Swallowing it would tell a caller its session is gone when it is not.
+      stub_post("/auth/logout", { revoked: false })
+      expect(client.auth.logout[:revoked]).to be(false)
+    end
+  end
+
   describe "auth.login" do
     let(:key) { "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" }
 
@@ -391,6 +408,24 @@ RSpec.describe Rail0::Client do
       result = client.payments.sign(PAYMENT_ID, { signature: "0x#{'ab' * 65}" })
       expect(stub).to have_been_requested
       expect(result[:status]).to eq("signed")
+    end
+  end
+
+  describe "payments dispute report-by-hash" do
+    # The payer's counterpart to submit_by_hash, which only covers the single-segment
+    # /payments/{id}/{operation}/submitted shape — `dispute/close` is two segments, which
+    # is why these need their own methods rather than an operation argument.
+    it "reports a broadcast dispute by hash" do
+      stub = stub_post("/payments/#{PAYMENT_ID}/dispute/submitted", { status: "submitted" }, status: 202)
+      result = client.payments.dispute_submit_by_hash(PAYMENT_ID, { transaction_hash: "0x#{'ab' * 32}" })
+      expect(stub).to have_been_requested
+      expect(result[:status]).to eq("submitted")
+    end
+
+    it "reports a broadcast close-dispute by hash on the two-segment path" do
+      stub = stub_post("/payments/#{PAYMENT_ID}/dispute/close/submitted", { status: "submitted" }, status: 202)
+      client.payments.close_dispute_submit_by_hash(PAYMENT_ID, { transaction_hash: "0x#{'cd' * 32}" })
+      expect(stub).to have_been_requested
     end
   end
 

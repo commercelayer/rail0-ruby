@@ -254,6 +254,32 @@ module Rail0
         http.post("/payments/#{id}/dispute/close", params)
       end
 
+      # The payer's counterpart to {#submit_by_hash}, which covers only the operations
+      # under /payments/{id}/{operation}/submitted — the two dispute paths are not shaped
+      # that way (`dispute/close` is two segments), so they need their own methods. Both
+      # exist in rail0-go and rail0-ts; without them a Ruby caller signing with a wallet
+      # that broadcasts on its own (MetaMask) could open and close disputes with a raw
+      # signed transaction, but never report one it had already sent. (#19)
+      #
+      # Payer-only, and the payer authenticates account-less via SIWE: a bare hash
+      # carries no signature, so the session is what proves who is reporting it.
+
+      # Report an already-broadcast dispute transaction by hash (payer only); HTTP 202.
+      # @param id [String] Payment UUID or rail0_id.
+      # @param params [Hash] { transaction_hash: "0x…" }.
+      # @return [Hash]
+      def dispute_submit_by_hash(id, params)
+        http.post("/payments/#{id}/dispute/submitted", params)
+      end
+
+      # Report an already-broadcast close-dispute transaction by hash (payer only); HTTP 202.
+      # @param id [String] Payment UUID or rail0_id.
+      # @param params [Hash] { transaction_hash: "0x…" }.
+      # @return [Hash]
+      def close_dispute_submit_by_hash(id, params)
+        http.post("/payments/#{id}/dispute/close/submitted", params)
+      end
+
       private
 
       def prepare_dispute(path, id, reason)

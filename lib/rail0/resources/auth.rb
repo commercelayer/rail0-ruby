@@ -35,6 +35,24 @@ module Rail0
         http.post("/auth", { message: message, signature: signature })
       end
 
+      # End the session whose token this client carries.
+      #
+      # Per TOKEN, not per address: signing out one process leaves the others signed in.
+      # Requires the session it revokes, so the client must be holding one — a client
+      # built without a token gets a 401 rather than a silent no-op.
+      #
+      # `revoked` is the OUTCOME, not a formality, and the reason this returns the body
+      # instead of nil. The gateway's denylist fails open by design — a store outage must
+      # not sign out the whole platform — so `false` means the token is STILL USABLE until
+      # its own expiry, and a caller should treat its copy as compromised rather than
+      # assume the session is gone. rail0-go and rail0-ts have had this; Ruby was the one
+      # SDK where a long-lived process could not hand a session back. (#19)
+      #
+      # @return [Hash] { revoked: true|false }
+      def logout
+        http.post("/auth/logout", {})
+      end
+
       # Perform the full SIWE authentication flow:
       #   1. Fetch a nonce
       #   2. Build an EIP-4361 message via siwe-rb
