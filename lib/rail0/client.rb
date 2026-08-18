@@ -58,11 +58,17 @@ module Rail0
     # @param logger [#call, nil] Optional logger. Pass Rail0::DEFAULT_LOGGER for built-in output.
     # @param max_retries [Integer] Extra attempts after a network failure. Default: 0.
     # @param retry_delay [Numeric] Base delay in seconds between retries (exponential backoff). Default: 0.2.
+    # @param retry_on_429 [Boolean] Retry a rate-limited request, waiting the gateway's
+    #   Retry-After. Default: false — an automatic sleep hides back-pressure from the
+    #   process that could react to it, and stalls a request/response app. Turn it on in a
+    #   job. It works on its own: no need to set +max_retries+ as well.
+    # @param retry_after_cap [Numeric] Longest Retry-After to honour, in seconds. Default: 60.
     def initialize(base_url:, headers: {}, token: nil, timeout: 30, logger: nil,
-                   max_retries: 0, retry_delay: 0.2)
+                   max_retries: 0, retry_delay: 0.2, retry_on_429: false, retry_after_cap: 60)
       http = HttpClient.new(
         base_url: base_url, headers: headers, token: token, timeout: timeout,
-        logger: logger, max_retries: max_retries, retry_delay: retry_delay
+        logger: logger, max_retries: max_retries, retry_delay: retry_delay,
+        retry_on_429: retry_on_429, retry_after_cap: retry_after_cap
       )
       @auth            = Resources::Auth.new(http)
       @chains          = Resources::Chains.new(http)

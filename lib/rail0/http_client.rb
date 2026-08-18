@@ -6,10 +6,22 @@ require_relative "request"
 module Rail0
   # @!visibility private
   class HttpClient
-    attr_reader :base_url, :timeout, :logger, :max_retries, :retry_delay
+    attr_reader :base_url, :timeout, :logger, :max_retries, :retry_delay,
+                :retry_on_429, :retry_after_cap
 
+    # @param retry_on_429 [Boolean] retry a rate-limited request, waiting the gateway's
+    #   Retry-After (see Rail0::Backoff). OFF by default, deliberately: an automatic
+    #   sleep hides back-pressure from the one process that could react to it, and in a
+    #   request/response app it turns a 429 into a stalled page. Turn it on for a job.
+    #
+    #   It does NOT need `max_retries` to be set as well. That pairing is a footgun —
+    #   the flag would silently do nothing — so on its own it allows one retry.
+    # @param retry_after_cap [Numeric] longest wait to honour, in seconds. The gateway
+    #   sends its whole throttle period as Retry-After rather than the time left in it,
+    #   so this bounds both the over-wait and any hostile value from in between.
     def initialize(base_url:, headers: {}, token: nil, timeout: 30, logger: nil,
-                   max_retries: 0, retry_delay: 0.2)
+                   max_retries: 0, retry_delay: 0.2, retry_on_429: false,
+                   retry_after_cap: 60)
       @base_url        = base_url.chomp("/")
       @static_headers  = { "Content-Type" => "application/json" }.merge(headers)
       @token           = token
@@ -17,6 +29,8 @@ module Rail0
       @logger          = logger || NULL_LOGGER
       @max_retries     = max_retries
       @retry_delay     = retry_delay
+      @retry_on_429    = retry_on_429
+      @retry_after_cap = retry_after_cap
       freeze
     end
 

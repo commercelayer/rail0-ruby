@@ -15,18 +15,29 @@ module Rail0
     # @!attribute [r] detail
     #   @return [String, nil] One or two sentences fit to show a user verbatim. Also this
     #     exception's message.
-    attr_reader :status, :error, :title, :detail
+    # @!attribute [r] retry_after
+    #   @return [Integer, nil] Seconds the gateway asked the caller to wait, from the
+    #     `Retry-After` header — present on a 429 (`error == "rate_limited"`) and nil
+    #     otherwise. Surfaced because the alternative is a caller guessing: the SDK used
+    #     to drop the header, so "rate limited" arrived with no idea of for how long.
+    #
+    #     Note it is the WHOLE window the gateway throttles over, not the time left in it
+    #     — the limiter sends its period verbatim — so it is an upper bound on the wait,
+    #     not a measurement. Rail0::Backoff clamps it for that reason.
+    attr_reader :status, :error, :title, :detail, :retry_after
 
     # @param status [Integer]
     # @param error [String]
     # @param message [String] The detail; kept positional for compatibility.
     # @param title [String, nil]
-    def initialize(status, error, message, title: nil)
+    # @param retry_after [Integer, nil]
+    def initialize(status, error, message, title: nil, retry_after: nil)
       super(message)
       @status = status
       @error = error
       @title = title
       @detail = message
+      @retry_after = retry_after
       freeze
     end
 

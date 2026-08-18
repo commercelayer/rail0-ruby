@@ -497,11 +497,50 @@ Rail0::Client.new(
   timeout:     30,                                # seconds (default 30)
   max_retries: 0,                                 # network-error retries (default 0)
   retry_delay: 0.2,                               # base delay, doubles each attempt
+  retry_on_429: false,                            # retry a rate limit (default false)
+  retry_after_cap: 60,                            # longest Retry-After to honour, seconds
   logger:      Rail0::DEFAULT_LOGGER               # optional
 )
 ```
 
-Only network errors and timeouts are retried; HTTP error responses are not.
+### Rate limits
+
+The gateway throttles two surfaces independently: the public, unauthenticated one **per
+IP** (100 requests / 60s by default — SIWE nonce + verify, `/payment_methods`, the
+catalog reads, `/health`) and everything authenticated **per session**, keyed on the
+JWT's subject (300 / 60s). Over budget it answers **429** with `code: "rate_limited"` and
+a `Retry-After`.
+
+`Rail0::ApiError#retry_after` carries that header as whole seconds — nil on every other
+error, and nil when the header is absent or unusable. Read it rather than guessing:
+
+```ruby
+begin
+  client.payments.list
+rescue Rail0::ApiError => e
+  raise unless e.error == "rate_limited"
+  sleep(e.retry_after || 5)   # the gateway's own pacing
+end
+```
+
+Note what the number means: the gateway sends **the whole throttle period**, not the time
+left in the current window, so it is an upper bound on the wait rather than a measurement.
+
+`retry_on_429: true` makes the SDK do that waiting for you — Retry-After, clamped to
+`retry_after_cap`, plus a little jitter (see `Rail0::Backoff`; callers sharing one session
+are told the same number and would otherwise wake in lockstep). The jitter never shortens
+a wait below what it is for: additive on the server's own number, and equal jitter — half
+fixed, half random — on a guessed one. It is **off by default**
+on purpose: an automatic sleep hides back-pressure from the process that could react to
+it, and in a request/response app it turns a rate limit into a stalled page. Turn it on in
+a job — and note it sleeps the **calling thread**. It also works on its own: you do not
+need to set `max_retries` as well (that pairing would make the flag a silent no-op).
+
+Only network errors, timeouts and — when opted in — a 429 are retried; no other HTTP
+error is. The 429 is safe to retry on **any** method, `POST` included, because the
+gateway rejects it in middleware before the request reaches the application: nothing ran,
+so nothing can run twice. That is not true of a 502 or a timeout on a capture, where the
+broadcast may already be in flight.
 
 ## Project structure
 

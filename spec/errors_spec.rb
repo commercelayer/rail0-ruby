@@ -115,3 +115,96 @@ RSpec.describe "error surface" do
     end
   end
 end
+
+RSpec.describe "rate limiting" do
+  BASE = BASE_URL
+
+  def throttled(retry_after: "60")
+    headers = { "Content-Type" => "application/json" }
+    headers["Retry-After"] = retry_after if retry_after
+    {
+      status: 429,
+      body: { code: "rate_limited", title: "Too many requests",
+              detail: "Rate limit reached. Retry in 60 seconds." }.to_json,
+      headers: headers
+    }
+  end
+
+  describe "the error a 429 raises" do
+    it "carries retry_after, so a caller is not left guessing" do
+      # The SDK used to drop the header: "rate limited" arrived with no idea for how long.
+      stub_request(:get, "#{BASE}/health").to_return(throttled)
+      client = Rail0::Client.new(base_url: BASE)
+
+      expect { client.health.get }.to raise_error(Rail0::ApiError) do |err|
+        expect(err.status).to eq(429)
+        expect(err.error).to eq("rate_limited")
+        expect(err.retry_after).to eq(60)
+      end
+    end
+
+    it "leaves retry_after nil when the header is absent or unusable" do
+      ["0", "later", nil].each do |value|
+        stub_request(:get, "#{BASE}/health").to_return(throttled(retry_after: value))
+        client = Rail0::Client.new(base_url: BASE)
+        expect { client.health.get }.to raise_error(Rail0::ApiError) { |e|
+          expect(e.retry_after).to be_nil
+        }
+      end
+    end
+
+    it "is nil on every other error" do
+      stub_request(:get, "#{BASE}/health")
+        .to_return(status: 404, body: { code: "not_found" }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+      client = Rail0::Client.new(base_url: BASE)
+      expect { client.health.get }.to raise_error(Rail0::ApiError) { |e|
+        expect(e.retry_after).to be_nil
+      }
+    end
+  end
+
+  describe "retry_on_429" do
+    it "does not retry by default — the 429 is the caller's to handle" do
+      stub = stub_request(:get, "#{BASE}/health").to_return(throttled)
+      client = Rail0::Client.new(base_url: BASE)
+      expect { client.health.get }.to raise_error(Rail0::ApiError)
+      expect(stub).to have_been_requested.once
+    end
+
+    it "retries once on its own, without max_retries also being set" do
+      # The pairing would be a footgun: the flag would silently do nothing.
+      stub = stub_request(:get, "#{BASE}/health")
+             .to_return(throttled)
+             .then.to_return(status: 200, body: { status: "ok" }.to_json,
+                             headers: { "Content-Type" => "application/json" })
+      client = Rail0::Client.new(base_url: BASE, retry_on_429: true, retry_delay: 0,
+                                 retry_after_cap: 0)
+      expect(client.health.get[:status]).to eq("ok")
+      expect(stub).to have_been_requested.twice
+    end
+
+    it "gives up after the budget and raises the last 429 with its retry_after" do
+      stub_request(:get, "#{BASE}/health").to_return(throttled)
+      client = Rail0::Client.new(base_url: BASE, retry_on_429: true, max_retries: 2,
+                                 retry_delay: 0, retry_after_cap: 0)
+      expect { client.health.get }.to raise_error(Rail0::ApiError) { |e|
+        expect(e.retry_after).to eq(60)
+      }
+      expect(a_request(:get, "#{BASE}/health")).to have_been_made.times(3)
+    end
+
+    it "retries a POST as readily as a GET" do
+      # Safe specifically because Rack::Attack rejects in middleware, before the request
+      # reaches the application: nothing ran, so nothing can run twice. Not true of a 502.
+      stub = stub_request(:post, "#{BASE}/auth/nonces")
+             .to_return(throttled)
+             .then.to_return(status: 201, body: { nonce: "abc" }.to_json,
+                             headers: { "Content-Type" => "application/json" })
+      client = Rail0::Client.new(base_url: BASE, retry_on_429: true, retry_delay: 0,
+                                 retry_after_cap: 0)
+      expect(client.auth.nonce[:nonce]).to eq("abc")
+      expect(stub).to have_been_requested.twice
+    end
+  end
+end
