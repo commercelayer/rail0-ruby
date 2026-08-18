@@ -7,12 +7,17 @@ module Rail0
   # backwards and impossible to notice once they are wrong — a client that waits too
   # little walks straight back into the limiter, and one that waits too long looks hung.
   #
-  # 1. JITTER IS ADDITIVE ON A SERVER-INSTRUCTED WAIT, MULTIPLICATIVE ON A GUESS.
-  #    The textbook "full jitter" multiplies the delay by rand(), which is right for a
-  #    backoff we invented — it spreads a thundering herd — and wrong for a Retry-After:
-  #    scaling the server's own number DOWN means retrying before the window it named has
-  #    passed, which is a second 429 by construction. So an instructed wait is honoured in
-  #    full and a small random tail is ADDED; a guessed one is jittered the usual way.
+  # 1. JITTER NEVER SHORTENS THE WAIT BELOW WHAT IT IS FOR.
+  #    On a server-instructed wait it is ADDITIVE: scaling a Retry-After DOWN means retrying
+  #    before the window the server named has passed, which is a second 429 by construction.
+  #    So the instruction is honoured in full and a small random tail is added.
+  #
+  #    On a guessed wait it is EQUAL jitter — half the delay fixed, half random — not the
+  #    textbook "full jitter" that multiplies the whole delay by rand(). Full jitter can
+  #    land arbitrarily close to zero, which makes a real pause indistinguishable from the
+  #    bug where a Retry-After of "0" is honoured as a duration and the retry fires
+  #    immediately. A floor spreads the herd just as well and leaves "did we actually wait"
+  #    observable.
   #
   #    Why any jitter at all when the server told us the time: because callers align on
   #    it. rail0-admin proxies every merchant over ONE session, so they share the
@@ -45,8 +50,10 @@ module Rail0
         # callers do not wake in lockstep.
         [instructed, cap].min + (random * base)
       else
-        # No instruction: exponential from `base`, full jitter, clamped.
-        [base * (2**(attempt - 1)) * random, cap].min
+        # No instruction: exponential from `base`, EQUAL jitter (half fixed, half random),
+        # clamped.
+        full = base * (2**(attempt - 1))
+        [(full / 2.0) + ((full / 2.0) * random), cap].min
       end
     end
 

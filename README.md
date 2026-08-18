@@ -514,7 +514,9 @@ left in the current window, so it is an upper bound on the wait rather than a me
 
 `retry_on_429: true` makes the SDK do that waiting for you — Retry-After, clamped to
 `retry_after_cap`, plus a little jitter (see `Rail0::Backoff`; callers sharing one session
-are told the same number and would otherwise wake in lockstep). It is **off by default**
+are told the same number and would otherwise wake in lockstep). The jitter never shortens
+a wait below what it is for: additive on the server's own number, and equal jitter — half
+fixed, half random — on a guessed one. It is **off by default**
 on purpose: an automatic sleep hides back-pressure from the process that could react to
 it, and in a request/response app it turns a rate limit into a stalled page. Turn it on in
 a job — and note it sleeps the **calling thread**. It also works on its own: you do not

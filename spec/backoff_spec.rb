@@ -21,6 +21,21 @@ RSpec.describe Rail0::Backoff do
       expect(delay).to eq(60)
     end
 
+    it "keeps a floor of half the delay on a guessed wait" do
+      # EQUAL jitter, not full: a wait that can land near zero is indistinguishable from
+      # the bug where a "0" Retry-After is honoured as a duration and the retry fires at
+      # once.
+      expect(described_class.throttle_delay(retry_after: nil, attempt: 1, base: 0.2, cap: 60,
+                                            jitter: 0)).to be_within(0.0001).of(0.1)
+      expect(described_class.throttle_delay(retry_after: nil, attempt: 1, base: 0.2, cap: 60,
+                                            jitter: 1.0)).to be_within(0.0001).of(0.2)
+      [0, 0.25, 0.5, 0.99].each do |jitter|
+        delay = described_class.throttle_delay(retry_after: nil, attempt: 3, base: 0.2,
+                                               cap: 60, jitter: jitter)
+        expect(delay).to be >= 0.4 # half of 0.2 * 2^2
+      end
+    end
+
     it "falls back to a jittered exponential backoff when there is no instruction" do
       %w[nil empty garbage].zip([nil, "", "soon"]).each do |_label, value|
         delay = described_class.throttle_delay(retry_after: value, attempt: 3, base: 0.2,
