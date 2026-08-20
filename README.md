@@ -358,27 +358,57 @@ digest with it. Comparison is constant-time.
 Account-scoped: the numbers are the merchant's own, so a buyer's account-less token is
 refused with `account_required`.
 
-```ruby
-client.analytics.summary(status: "captured")
-# => { count: 42, disputed_count: 1 }
+These methods return the parsed JSON as-is, so what follows is the contract — there is no
+typed wrapper between your code and the gateway.
 
-# Volume needs BOTH token and chain_id — amounts in different tokens (or the same symbol
-# on different chains) are different units, and summing them would produce a number that
-# looks meaningful and isn't.
-client.analytics.summary(token: usdc, chain_id: 84_532)
-# => { count: 12, disputed_count: 0, volume: { token: "0x…", chain_id: 84532, total: "12000000" } }
+```ruby
+kpis = client.analytics.summary(status: "captured")
+# => { orders: 42, disputed: 1, refund_rate: 0.07, dispute_rate: 0.02,
+#      failed_rate: 0.05, by_status: { captured: 40, refunded: 2 },
+#      volume: [...], gas: [...], gas_by_status: [...], gas_by_operation: [...] }
+
+# Volume is per (token, chain) and always present — amounts in different tokens (or the
+# same symbol on different chains) are different units, so they are grouped rather than
+# added. `settled`/`escrowed` say where the money IS (the on-chain residuals the indexer
+# mirrors); `captured`/`refunded` say what HAPPENED (the confirmed transactions). All are
+# base-unit integer strings — format with the row's `decimals`.
+kpis[:volume].first
+# => { chain_id: 84532, chain_name: "Base Sepolia", token: "0x…", symbol: "USDC",
+#      decimals: 6, orders: 12, gross: "12000000", settled: "9000000",
+#      escrowed: "0", captured: "12000000", refunded: "3000000" }
+
+# Gas is per CHAIN and in that chain's NATIVE token (decimals 18, never the payment
+# token), so it is never summed across chains: Base ETH and Polygon POL are different
+# currencies. `wasted` is gas an on-chain revert burned — money spent for nothing — and
+# `orders` is the denominator for the average cost of an order.
+kpis[:gas].first
+# => { chain_id: 84532, chain_name: "Base Sepolia", symbol: "ETH", decimals: 18,
+#      orders: 12, spent: "72000", wasted: "10000", confirmed: 14, failed: 2 }
+
+# The same rows regrouped, each with the `key` naming the cut; every cut adds back up to
+# its chain's `gas` row. `orders` is nil on the operation cut — one order spans several
+# operations — and the status cut is a SNAPSHOT: an authorize's gas sits under
+# "authorized" until you capture, then under "captured".
+kpis[:gas_by_status].first   # => { key: "captured", spent: "62000", orders: 2, … }
+kpis[:gas_by_operation].first # => { key: "capture", spent: "20000", orders: nil, … }
+
+# `failed_rate` is per resolved TRANSACTION, not per order: one order can carry several
+# attempts, and a retried capture that eventually confirms is what it exists to surface.
 
 client.analytics.timeseries(interval: "day", from: "2026-07-01T00:00:00Z")
-# => [{ bucket: "2026-07-01", count: 3 }, …]  oldest first
+# => [{ bucket: "2026-07-01T00:00:00Z", orders: 3, volume: nil }, …]  oldest first
+# A bucket is ONE number, so it can carry volume only when both token and chain_id are
+# filtered; otherwise `volume` is nil. "day" (default), "week" or "month" — no hourly.
 
 client.analytics.breakdown(by: "chain")
-# => [{ chain_id: 84532, count: 9 }, …]   by: token | chain | mode | status
+# => [{ key: "Base Sepolia", chain_id: 84532, orders: 9 }, …]  by: token|chain|mode|status
 ```
 
 All three take the same filters — `mode`, `status`, `token`, `chain_id`, `from`, `to` — so
 the same question can be asked at three resolutions: one total, a series over time, a split
-by dimension. Token and chain rows carry per-token volume; mode and status rows are counts
-only, for the reason above.
+by dimension. `from`/`to` filter the payment's CREATION date, which matters when reading
+gas: a payment created in one period and captured in the next books its capture gas in the
+first.
 
 ## Signing helpers (`Rail0::Signing`)
 
