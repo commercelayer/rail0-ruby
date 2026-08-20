@@ -1,0 +1,80 @@
+# ── SHARED rail0 Ruby style ───────────────────────────────────────────────────
+#
+# This file is DUPLICATED VERBATIM in every rail0 Ruby repo (rail0-gateway, rail0-ruby)
+# and must stay identical — the same convention the project already uses for the shared
+# rules in each repo's CLAUDE.md. Each repo's own .rubocop.yml inherits from it and adds
+# only what its framework and layout require.
+#
+# It is a separate FILE rather than a block at the top of .rubocop.yml because a repo
+# needs to add to cops this file already configures (an `Exclude` under a `Max`), and a
+# second `Layout/LineLength:` key in one YAML document REPLACES the first instead of
+# merging — it silently threw away this file's comment exemption until it was split out.
+# Through `inherit_from`, rubocop merges the two per key, which is what was meant.
+#
+# It exists because the linter arrived long after the code: every decision here
+# calibrates a cop to the style these repos already use consistently, or turns off a
+# cop that is wrong about this code. A linter that argues with its codebase teaches
+# people to ignore it.
+
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+
+# Double quotes everywhere, deliberately and without exception. Rubocop defaults to
+# single quotes; following that default would have rewritten 4432 strings in the
+# gateway and 1139 in the SDK to settle a preference both repos had already settled.
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+# Hashes are column-aligned where the literal IS a table (a seed row, a rate table)
+# and key-aligned elsewhere. Both are intentional, so both are allowed.
+Layout/HashAlignment:
+  EnforcedColonStyle:
+    - key
+    - table
+  EnforcedHashRocketStyle:
+    - key
+    - table
+
+# `x.zero?` RAISES on nil where `x == 0` does not, and the comparisons in these repos
+# are against optional values — a chain_id that is nil for "all chains". The SDK
+# learned this from the autocorrection: it turned two nil-safe guards into
+# NoMethodError and six specs went red.
+Style/NumericPredicate:
+  Enabled: false
+
+# The numbers in these names are PROTOCOL identifiers — eip712, eip3009, secp256k1, a
+# 429 status — and each spells itself its own way in its own specification. Enforcing
+# either style renames the other half; the name carries the protocol, not a counter.
+Naming/VariableNumber:
+  Enabled: false
+
+# Documentation here is prose above the interesting method, not a mandatory banner
+# over every class — many of these classes are four lines and named for what they do.
+Style/Documentation:
+  Enabled: false
+
+# 120, and comments are exempt: a copyable usage example or a reasoned paragraph is
+# worth more than a wrap. Each repo excludes its own data tables — files that are one
+# row per line by design, where folding a row makes the table unreadable to save a
+# column.
+Layout/LineLength:
+  Max: 120
+  AllowedPatterns:
+    - "^\\s*#"
+
+# Route params, service calls and signing helpers mirror the API they wrap: an
+# endpoint with nine optional filters takes nine, and grouping them into an object
+# would make the code read less like the request it serves.
+Metrics/ParameterLists:
+  Max: 10
+  CountKeywordArgs: false
+
+# A method that DOES something and answers whether it worked is not a predicate: it is a
+# command, and a `?` name on it would promise the caller it is free of side effects.
+# `Nonce.consume` runs a conditional UPDATE and returns whether this caller won the row;
+# `Payment#confirm_submission` applies an on-chain event and returns whether it applied. The
+# `?` forms exist beside them where a pure question is wanted (`payment.captured?`), and one
+# non-predicate alias is deliberate (`Webhook#active`, so a presenter can `expose :active`).
+Naming/PredicateMethod:
+  Enabled: false

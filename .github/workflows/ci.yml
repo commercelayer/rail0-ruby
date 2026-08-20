@@ -61,6 +61,6 @@ jobs:
           ruby-version: "3.3"
           bundler-cache: true
 
-      # The default rake task is the spec suite (Rakefile: task default: :spec).
-      - name: Specs
+      # The default rake task is rubocop + the spec suite (Rakefile: task default: %i[rubocop spec]).
+      - name: Style and specs
         run: bundle exec rake
