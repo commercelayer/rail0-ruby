@@ -95,12 +95,16 @@ module Rail0
         $VERBOSE = nil
         require "eth"
         require "siwe"
-        Siwe::Parser  # force the autoloaded parser/message files to load now, while warnings are muted
+        # rubocop:disable Lint/Void -- referencing these constants IS the point: it forces the
+        # autoloaded parser/message files to load here, while warnings are muted, instead of
+        # at the first login where the gem's own warnings would reach the caller's output.
+        Siwe::Parser
         Siwe::Message
+        # rubocop:enable Lint/Void
       rescue LoadError => e
         raise e,
-          "client.auth.login requires the 'eth' and 'siwe-rb' gems. " \
-          "Add them to your Gemfile: gem 'eth', '~> 0.5'; gem 'siwe-rb', '~> 0.2'"
+              "client.auth.login requires the 'eth' and 'siwe-rb' gems. " \
+              "Add them to your Gemfile: gem 'eth', '~> 0.5'; gem 'siwe-rb', '~> 0.2'"
       ensure
         $VERBOSE = original_verbose
       end

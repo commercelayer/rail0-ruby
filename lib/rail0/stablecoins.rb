@@ -112,7 +112,9 @@ module Rail0
     def self.tokens_supporting(chain, capability)
       c = REGISTRY[chain] or return []
       c.tokens.each_with_object([]) do |(symbol, info), arr|
-        arr << StablecoinToken.new(symbol: symbol, address: info.address, decimals: info.decimals) if info.public_send(capability)
+        if info.public_send(capability)
+          arr << StablecoinToken.new(symbol: symbol, address: info.address, decimals: info.decimals)
+        end
       end
     end
 

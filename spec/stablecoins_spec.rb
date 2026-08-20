@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe Rail0::Stablecoins do
   describe ".chain_info" do
     it "returns chain data for a known chain" do

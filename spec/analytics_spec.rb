@@ -6,12 +6,6 @@
 # ARE this SDK's contract, and the README documents them as such.
 RSpec.describe Rail0::Resources::Analytics do
   let(:client) { Rail0::Client.new(base_url: BASE_URL) }
-
-  def stub_get(path, body)
-    stub_request(:get, "#{BASE_URL}#{path}")
-      .to_return(status: 200, body: body.to_json, headers: { "Content-Type" => "application/json" })
-  end
-
   # One row per chain, and the two cuts of it, as the gateway sends them.
   let(:summary_body) do
     {
@@ -38,6 +32,11 @@ RSpec.describe Rail0::Resources::Analytics do
           confirmed: 1, failed: 1 }
       ]
     }
+  end
+
+  def stub_get(path, body)
+    stub_request(:get, "#{BASE_URL}#{path}")
+      .to_return(status: 200, body: body.to_json, headers: { "Content-Type" => "application/json" })
   end
 
   describe "#summary" do

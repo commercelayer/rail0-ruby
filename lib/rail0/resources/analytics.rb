@@ -82,7 +82,7 @@ module Rail0
       # @return [Array<Hash>] `bucket` (ISO-8601 start), `orders`, and `volume` — a
       #   base-unit string only when BOTH token and chain_id are filtered, else null.
       def timeseries(interval: nil, **filters)
-        http.get("/analytics/timeseries#{build_query(**only_filters(filters).merge(interval: interval))}")
+        http.get("/analytics/timeseries#{build_query(**only_filters(filters), interval: interval)}")
       end
 
       # The account's payments aggregated by one dimension.
@@ -97,7 +97,7 @@ module Rail0
       def breakdown(by:, **filters)
         raise ArgumentError, "by is required (token, chain, mode or status)" if by.nil? || by.to_s.empty?
 
-        http.get("/analytics/breakdown#{build_query(**only_filters(filters).merge(by: by))}")
+        http.get("/analytics/breakdown#{build_query(**only_filters(filters), by: by)}")
       end
 
       private

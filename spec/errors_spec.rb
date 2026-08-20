@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe "error surface" do
   let(:client) { Rail0::Client.new(base_url: BASE_URL) }
 

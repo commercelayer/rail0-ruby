@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "webmock/rspec"
 require "rail0"
 
@@ -35,16 +37,16 @@ TOKEN = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" # Base USDC
 
 # Payment::Unsigned — create response while still unsigned (embeds signing_payload).
 PAYMENT_UNSIGNED = {
-  id:            PAYMENT_UUID,
-  rail0_id:      PAYMENT_ID,
-  status:        "unsigned",
-  mode:          "authorize",
-  amount:        "100000000",
-  payer:         PAYER,
-  payee:         PAYEE,
-  token:         TOKEN,
-  chain_id:      84532,
-  disputed:      false,
+  id: PAYMENT_UUID,
+  rail0_id: PAYMENT_ID,
+  status: "unsigned",
+  mode: "authorize",
+  amount: "100000000",
+  payer: PAYER,
+  payee: PAYEE,
+  token: TOKEN,
+  chain_id: 84532,
+  disputed: false,
   signing_payload: {
     domain:      { name: "USD Coin", version: "2", chainId: 84532, verifyingContract: TOKEN },
     primaryType: "TransferWithAuthorization",
@@ -55,19 +57,19 @@ PAYMENT_UNSIGNED = {
 
 # Payment::Detail — a signed/authorized payment with live balances + transactions.
 PAYMENT_DETAIL = {
-  id:               PAYMENT_UUID,
-  rail0_id:         PAYMENT_ID,
-  status:           "authorized",
-  mode:             "authorize",
-  amount:           "100000000",
+  id: PAYMENT_UUID,
+  rail0_id: PAYMENT_ID,
+  status: "authorized",
+  mode: "authorize",
+  amount: "100000000",
   capturable_amount: "100000000",
   refundable_amount: "0",
-  payer:            PAYER,
-  payee:            PAYEE,
-  token:            TOKEN,
-  chain_id:         84532,
-  disputed:         false,
-  transactions:     []
+  payer: PAYER,
+  payee: PAYEE,
+  token: TOKEN,
+  chain_id: 84532,
+  disputed: false,
+  transactions: []
 }.freeze
 
 # Transaction::Restricted returned by a prepare step. unsigned_transaction is the
@@ -79,10 +81,10 @@ UNSIGNED_TX_JSON = {
 }.to_json
 
 PREPARE_RESPONSE = {
-  id:                  "018e5555-6666-7abc-9def-012345678905",
-  payment_id:          PAYMENT_UUID,
-  operation:           "authorize",
-  status:              "pending",
+  id: "018e5555-6666-7abc-9def-012345678905",
+  payment_id: PAYMENT_UUID,
+  operation: "authorize",
+  status: "pending",
   unsigned_transaction: UNSIGNED_TX_JSON
 }.freeze
 
@@ -116,7 +118,7 @@ WALLET_WITH_TOKENS = WALLET.merge(
 # Balance::Restricted
 WALLET_BALANCES = {
   wallet_id: WALLET_ID,
-  address:   PAYEE,
+  address: PAYEE,
   balances: [
     {
       chain_id: 84532, network_type: "testnet",

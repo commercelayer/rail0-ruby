@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Standard two-step payment flow: authorize → capture
 #
 #   payer  creates the payment            → POST /payments
@@ -16,7 +18,7 @@ ACCOUNT_ID = ENV.fetch("RAIL0_ACCOUNT_ID")    # merchant account UUID
 BUYER      = ENV.fetch("PAYER_ADDRESS")       # payer's 0x address
 
 GATEWAY = "https://api.rail0.xyz"
-DOMAIN  = "api.rail0.xyz"   # must be one of the gateway's allowed SIWE domains
+DOMAIN  = "api.rail0.xyz" # must be one of the gateway's allowed SIWE domains
 
 # EVERY endpoint under /payments requires a SIWE session, and POST /payments
 # additionally requires the caller to BE the payer (403 payer_must_be_caller
@@ -47,7 +49,7 @@ puts "Using #{token[:symbol]} on chain #{token[:chain_id]} → payee #{wallet[:a
 payment = payer.payments.create(
   chain_id: token[:chain_id],
   mode:     "authorize",
-  amount:   "100.00",     # human decimals, NOT base units — the gateway scales
+  amount:   "100.00", # human decimals, NOT base units — the gateway scales
   token:    token[:address],
   payer:    BUYER,
   payee:    wallet[:address],
@@ -72,6 +74,7 @@ loop do
   puts "  status: #{state[:status]}"
   break if state[:status] == "authorized"
   raise "failed: #{state[:last_error_code]} — #{state[:last_error_message]}" if state[:status] == "failed"
+
   sleep 2
 end
 
@@ -79,7 +82,7 @@ capturable = payer.payments.get(rail0_id)[:capturable_amount]
 puts "Authorized. capturable_amount: #{capturable}"
 
 # ── Step 5 — payee captures (partial capture shown: 50 of 100 USDC) ───────────
-cap = payee.payments.capture_prepare(rail0_id, "50.00")   # human decimals too
+cap = payee.payments.capture_prepare(rail0_id, "50.00") # human decimals too
 raw = Rail0::Signing.sign_transaction(cap[:unsigned_transaction], PAYEE_KEY)
 payee.payments.capture(rail0_id, { signed_transaction: raw })
 
@@ -88,6 +91,7 @@ loop do
   puts "  status: #{state[:status]}"
   break if %w[captured partially_captured].include?(state[:status])
   raise "capture failed: #{state[:last_error_code]}" if state[:status] == "failed"
+
   sleep 2
 end
 puts "Done — payment captured."

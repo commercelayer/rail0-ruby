@@ -642,12 +642,23 @@ lib/rail0/
 
 ```bash
 bundle install
-bundle exec rake         # run the test suite (default task)
+bundle exec rake         # rubocop, then the specs — the same gate CI runs
+
+bundle exec rubocop      # style only
+bundle exec rubocop -a   # and fix what is safely fixable
+bundle exec rspec        # specs only
 
 # Regenerate lib/rail0/types.rb after a gateway schema change:
 #   defaults to ../rail0-gateway/docs/openapi.json, or set RAIL0_SCHEMA_PATH.
 ruby gen/generate.rb
 ```
+
+`.rubocop.yml` is calibrated to the code that already exists rather than to rubocop's
+defaults, and every relaxation in it carries the reason — double quotes because the project
+uses them everywhere, table-aligned hashes because some literals are tables, and
+`Naming/VariableNumber` off because the numbers in these names are protocol identifiers
+(`retry_on_429`, `eip712`, `secp256k1`) that each spell themselves their own way. A linter
+that argues with the codebase teaches people to ignore it.
 
 ## License
 

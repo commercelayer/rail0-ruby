@@ -8,7 +8,7 @@ begin
   require "eth"
 rescue LoadError => e
   raise e,
-    "Rail0::Signing requires the 'eth' gem. Add `gem 'eth', '~> 0.5'` to your Gemfile."
+        "Rail0::Signing requires the 'eth' gem. Add `gem 'eth', '~> 0.5'` to your Gemfile."
 ensure
   $VERBOSE = original_verbose
 end
@@ -40,9 +40,7 @@ module Rail0
       #
       # @return [String] "0x" + r (32 bytes) + s (32 bytes) + v (1 byte), 132 chars total.
       def to_hex
-        unless r.start_with?("0x") && s.start_with?("0x")
-          raise ArgumentError, "r and s must be 0x-prefixed hex strings"
-        end
+        raise ArgumentError, "r and s must be 0x-prefixed hex strings" unless r.start_with?("0x") && s.start_with?("0x")
 
         "0x#{r[2..]}#{s[2..]}#{v.to_s(16).rjust(2, '0')}"
       end
@@ -128,7 +126,7 @@ module Rail0
     end
 
     def self.abi_address(address)
-      "\x00" * 12 + hex_to_bytes(address)
+      ("\x00" * 12) + hex_to_bytes(address)
     end
 
     def self.uint256_to_bytes32(value)
@@ -137,7 +135,7 @@ module Rail0
     end
 
     def self.bytes_to_hex(bytes)
-      "0x" + bytes.unpack1("H*")
+      "0x#{bytes.unpack1('H*')}"
     end
 
     private_class_method :hex_to_bytes, :abi_address, :uint256_to_bytes32, :bytes_to_hex
@@ -165,12 +163,16 @@ module Rail0
     end
 
     def self.build_digest(domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash:)
+      # rubocop:disable Style/StringConcatenation -- these are BINARY byte strings and the
+      # EIP-712 preimage is defined as their concatenation: `+` says that, while
+      # interpolation would coerce each part through to_s and read as text assembly.
       Eth::Util.keccak256(
         "\x19\x01" +
         hash_domain(domain) +
         hash_struct(from: from, to: to, value: value, valid_after: valid_after,
                     valid_before: valid_before, nonce: nonce, typehash: typehash)
       )
+      # rubocop:enable Style/StringConcatenation
     end
 
     private_class_method :hash_domain, :hash_struct, :build_digest
@@ -199,7 +201,8 @@ module Rail0
     private_class_method :signer_for
 
     def self.do_sign(private_key, domain, from:, to:, value:, valid_after:, valid_before:, nonce:, typehash:)
-      digest = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after, valid_before: valid_before, nonce: nonce, typehash: typehash)
+      digest = build_digest(domain, from: from, to: to, value: value, valid_after: valid_after,
+                                    valid_before: valid_before, nonce: nonce, typehash: typehash)
 
       sig       = signer_for(private_key).sign(digest)
       sig_bytes = [sig.to_s.delete_prefix("0x")].pack("H*")

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe Rail0::Client do
   let(:client) { Rail0::Client.new(base_url: BASE_URL) }
 
@@ -116,8 +118,8 @@ RSpec.describe Rail0::Client do
   describe "auth.verify" do
     it "POSTs message + signature to /auth and returns a session" do
       stub = stub_request(:post, "#{BASE_URL}/auth")
-        .with(body: hash_including("message" => anything, "signature" => anything))
-        .to_return(status: 201, body: SESSION_RESPONSE.to_json, headers: json_headers)
+             .with(body: hash_including("message" => anything, "signature" => anything))
+             .to_return(status: 201, body: SESSION_RESPONSE.to_json, headers: json_headers)
       result = client.auth.verify(message: "msg", signature: "0xdeadbeef")
       expect(stub).to have_been_requested
       expect(result[:token]).to eq("signed.jwt.token")
@@ -212,8 +214,8 @@ RSpec.describe Rail0::Client do
 
     it "create posts address and label" do
       stub = stub_request(:post, "#{BASE_URL}#{base}")
-        .with(body: { address: PAYEE, label: "Merchant wallet" })
-        .to_return(status: 201, body: WALLET.to_json, headers: json_headers)
+             .with(body: { address: PAYEE, label: "Merchant wallet" })
+             .to_return(status: 201, body: WALLET.to_json, headers: json_headers)
       client.wallets.create(ACCOUNT_ID, address: PAYEE, label: "Merchant wallet")
       expect(stub).to have_been_requested
     end
@@ -331,7 +333,7 @@ RSpec.describe Rail0::Client do
              .with { |req| !req.headers.key?("Authorization") }
              .to_return(status: 200, body: HEALTH.to_json, headers: json_headers)
 
-      Rail0::Client.new(base_url: BASE_URL, token: -> { nil }).health.get
+      Rail0::Client.new(base_url: BASE_URL, token: -> {}).health.get
 
       expect(stub).to have_been_requested
     end
@@ -367,8 +369,8 @@ RSpec.describe Rail0::Client do
 
     it "sends the Idempotency-Key header when given" do
       stub = stub_request(:post, "#{BASE_URL}/payments")
-        .with(headers: { "Idempotency-Key" => "key-123" })
-        .to_return(status: 201, body: PAYMENT_UNSIGNED.to_json, headers: json_headers)
+             .with(headers: { "Idempotency-Key" => "key-123" })
+             .to_return(status: 201, body: PAYMENT_UNSIGNED.to_json, headers: json_headers)
       client.payments.create({ chain_id: 84532, mode: "charge", amount: "1", token: TOKEN, payer: PAYER, payee: PAYEE },
                              idempotency_key: "key-123")
       expect(stub).to have_been_requested
@@ -476,8 +478,8 @@ RSpec.describe Rail0::Client do
 
     it "capture_prepare sends the amount in the body" do
       stub = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/capture/prepare")
-        .with(body: { amount: "40000000" })
-        .to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+             .with(body: { amount: "40000000" })
+             .to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
       client.payments.capture_prepare(PAYMENT_ID, "40000000")
       expect(stub).to have_been_requested
     end
@@ -491,20 +493,20 @@ RSpec.describe Rail0::Client do
 
     it "release_prepare defaults to an empty body and accepts from" do
       empty = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/release/prepare")
-        .with(body: {}).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+              .with(body: {}).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
       client.payments.release_prepare(PAYMENT_ID)
       expect(empty).to have_been_requested
 
       with_from = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/release/prepare")
-        .with(body: { from: PAYER }).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+                  .with(body: { from: PAYER }).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
       client.payments.release_prepare(PAYMENT_ID, from: PAYER)
       expect(with_from).to have_been_requested
     end
 
     it "refund_prepare phase-1 (amount only) returns a signing payload" do
       stub = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/refund/prepare")
-        .with(body: { amount: "50000000" })
-        .to_return(status: 200, body: REFUND_SIGNING_RESPONSE.to_json, headers: json_headers)
+             .with(body: { amount: "50000000" })
+             .to_return(status: 200, body: REFUND_SIGNING_RESPONSE.to_json, headers: json_headers)
       result = client.payments.refund_prepare(PAYMENT_ID, amount: "50000000")
       expect(stub).to have_been_requested
       expect(result[:signing_payload][:primaryType]).to eq("ReceiveWithAuthorization")
@@ -512,8 +514,8 @@ RSpec.describe Rail0::Client do
 
     it "refund_prepare phase-2 (amount + signature) returns an unsigned tx" do
       stub = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/refund/prepare")
-        .with(body: { amount: "50000000", signature: "0x#{'cd' * 65}" })
-        .to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+             .with(body: { amount: "50000000", signature: "0x#{'cd' * 65}" })
+             .to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
       client.payments.refund_prepare(PAYMENT_ID, amount: "50000000", signature: "0x#{'cd' * 65}")
       expect(stub).to have_been_requested
     end
@@ -537,8 +539,8 @@ RSpec.describe Rail0::Client do
 
     it "submit_by_hash posts the hash to /{op}/submitted" do
       stub = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/capture/submitted")
-        .with(body: { transaction_hash: "0x#{'ee' * 32}" })
-        .to_return(status: 202, body: SUBMIT_RESPONSE.to_json, headers: json_headers)
+             .with(body: { transaction_hash: "0x#{'ee' * 32}" })
+             .to_return(status: 202, body: SUBMIT_RESPONSE.to_json, headers: json_headers)
       client.payments.submit_by_hash(PAYMENT_ID, "capture", { transaction_hash: "0x#{'ee' * 32}" })
       expect(stub).to have_been_requested
     end
@@ -549,12 +551,12 @@ RSpec.describe Rail0::Client do
   describe "dispute operations" do
     it "dispute_prepare omits reason by default and includes it when given" do
       no_reason = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/prepare")
-        .with(body: {}).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+                  .with(body: {}).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
       client.payments.dispute_prepare(PAYMENT_ID)
       expect(no_reason).to have_been_requested
 
       with_reason = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/prepare")
-        .with(body: { reason: "0x#{'0' * 64}" }).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+                    .with(body: { reason: "0x#{'0' * 64}" }).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
       client.payments.dispute_prepare(PAYMENT_ID, reason: "0x#{'0' * 64}")
       expect(with_reason).to have_been_requested
     end
@@ -583,9 +585,10 @@ RSpec.describe Rail0::Client do
 
     it "create returns the one-time shared_secret" do
       stub = stub_request(:post, "#{BASE_URL}/webhooks")
-        .with(body: { name: "orders", callback_url: "https://merchant.example/hook", topic: "payments.captured" })
-        .to_return(status: 201, body: WEBHOOK_WITH_SECRET.to_json, headers: json_headers)
-      result = client.webhooks.create(name: "orders", callback_url: "https://merchant.example/hook", topic: "payments.captured")
+             .with(body: { name: "orders", callback_url: "https://merchant.example/hook", topic: "payments.captured" })
+             .to_return(status: 201, body: WEBHOOK_WITH_SECRET.to_json, headers: json_headers)
+      result = client.webhooks.create(name: "orders", callback_url: "https://merchant.example/hook",
+                                      topic: "payments.captured")
       expect(stub).to have_been_requested
       expect(result[:shared_secret]).to eq("whsec_test_abc123")
     end

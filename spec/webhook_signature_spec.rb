@@ -13,8 +13,8 @@ RSpec.describe Rail0::WebhookSignature do
   let(:signature) { described_class.expected_signature(body, timestamp, secret) }
 
   def verify(**overrides)
-    described_class.verify(**{ body: body, signature: signature, timestamp: timestamp,
-                               secret: secret, now: now }.merge(overrides))
+    described_class.verify(body: body, signature: signature, timestamp: timestamp,
+                           secret: secret, now: now, **overrides)
   end
 
   it "matches the gateway's HMAC over \"{timestamp}.{body}\"" do

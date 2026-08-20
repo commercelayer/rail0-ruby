@@ -51,7 +51,6 @@ module Rail0
     attr_reader :auth, :chains, :tokens, :health, :payment_methods,
                 :accounts, :wallets, :payments, :disputes, :webhooks, :analytics
 
-
     # @param base_url [String] Base URL of the RAIL0 API, e.g. "https://api.rail0.xyz".
     # @param headers [Hash] Default headers merged into every request (e.g. Authorization).
     # @param token [String, #call, nil] Bearer token, or a callable resolved per request

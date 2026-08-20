@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Rail0
   # Actionable next steps per error code, supplementing the gateway's own `detail`.
   # Shared source with the Go SDK (rail0.DescribeError), the TS SDK (describeError) and

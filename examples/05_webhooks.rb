@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Manage webhook subscriptions (requires a JWT).
 #
 # A webhook subscribes to exactly one topic and delivers a signed POST to your
@@ -21,7 +23,7 @@ api  = Rail0::Client.new(
 hook = api.webhooks.create(
   name:         "captured-orders",
   callback_url: "https://merchant.example/rail0/webhook",
-  topic:        "payments.captured"   # see Rail0::Resources::Webhooks::TOPICS
+  topic:        "payments.captured" # see Rail0::Resources::Webhooks::TOPICS
 )
 puts "Created webhook #{hook[:id]}"
 puts "Shared secret (store it now — shown only once): #{hook[:shared_secret]}"

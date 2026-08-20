@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Open and close a dispute on a payment.
 #
 # Disputes are payer-driven and authorized on-chain, AND — like everything else
@@ -13,7 +15,7 @@ PAYER_KEY  = ENV.fetch("PAYER_PRIVATE_KEY")   # the payer signs dispute txs
 PAYMENT_ID = ENV.fetch("RAIL0_PAYMENT_ID")    # UUID or 0x-prefixed rail0_id
 
 GATEWAY = "https://api.rail0.xyz"
-DOMAIN  = "api.rail0.xyz"   # must be one of the gateway's allowed SIWE domains
+DOMAIN  = "api.rail0.xyz" # must be one of the gateway's allowed SIWE domains
 
 # The payer signs in: dispute prepare is participant-only, dispute submit is payer-only.
 auth   = Rail0::Client.new(base_url: GATEWAY).auth.login(private_key: PAYER_KEY, domain: DOMAIN)
@@ -34,6 +36,7 @@ loop do
   state = client.payments.get(PAYMENT_ID)
   puts "  disputed: #{state[:disputed]}"
   break if state[:disputed]
+
   sleep 2
 end
 
@@ -51,6 +54,7 @@ loop do
   state = client.payments.get(PAYMENT_ID)
   puts "  disputed: #{state[:disputed]}"
   break unless state[:disputed]
+
   sleep 2
 end
 puts "Done — dispute closed."

@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
+
 #
 # Code generation for the RAIL0 Ruby SDK.
 #
@@ -120,7 +121,7 @@ object_schemas.each do |name, schema_def|
   end
 
   lines << "    #{ruby_name} = Struct.new("
-  entries  = properties.map { |pn, pd| [pn, member_comment(pd, type_comment(pd))] }
+  entries = properties.map { |pn, pd| [pn, member_comment(pd, type_comment(pd))] }
   pad_width = entries.map { |pn, _| pn.length }.max + 3
   entries.each do |prop_name, inline_desc|
     padded  = ":#{prop_name},".ljust(pad_width)

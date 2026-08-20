@@ -49,20 +49,20 @@ module Rail0
         error_body = parse_error_body(response)
         api_error  = ApiError.new(response.code.to_i, error_code(error_body),
                                   error_message(error_body, response), title: error_body[:title],
-                                  retry_after: retry_after_seconds(response))
+                                                                       retry_after: retry_after_seconds(response))
         logger.call(LogEntry.new(
-          method: method.to_s.upcase, url: url, duration_ms: duration_ms, attempt: attempt,
-          request_body: body, status: response.code.to_i, response_body: error_body, error: api_error
-        ))
+                      method: method.to_s.upcase, url: url, duration_ms: duration_ms, attempt: attempt,
+                      request_body: body, status: response.code.to_i, response_body: error_body, error: api_error
+                    ))
         raise api_error
       end
 
       body_data = parse_body(response)
       result    = paginated ? { data: body_data, meta: page_meta(response) } : body_data
       logger.call(LogEntry.new(
-        method: method.to_s.upcase, url: url, duration_ms: duration_ms, attempt: attempt,
-        request_body: body, status: response.code.to_i, response_body: result
-      ))
+                    method: method.to_s.upcase, url: url, duration_ms: duration_ms, attempt: attempt,
+                    request_body: body, status: response.code.to_i, response_body: result
+                  ))
       result
     end
 
@@ -89,9 +89,9 @@ module Rail0
         rescue *ERRORS => e
           will_retry = attempt <= max_retries
           logger.call(LogEntry.new(
-            method: method.to_s.upcase, url: url, duration_ms: elapsed_ms(start),
-            attempt: attempt, request_body: body, error: e, will_retry: will_retry
-          ))
+                        method: method.to_s.upcase, url: url, duration_ms: elapsed_ms(start),
+                        attempt: attempt, request_body: body, error: e, will_retry: will_retry
+                      ))
           raise unless will_retry
 
           attempt += 1
@@ -106,10 +106,10 @@ module Rail0
           base: retry_delay, cap: retry_after_cap
         )
         logger.call(LogEntry.new(
-          method: method.to_s.upcase, url: url, duration_ms: elapsed_ms(start), attempt: attempt,
-          request_body: body, status: response.code.to_i,
-          response_body: parse_error_body(response), will_retry: true
-        ))
+                      method: method.to_s.upcase, url: url, duration_ms: elapsed_ms(start), attempt: attempt,
+                      request_body: body, status: response.code.to_i,
+                      response_body: parse_error_body(response), will_retry: true
+                    ))
         attempt += 1
         sleep(delay)
       end
@@ -138,6 +138,7 @@ module Rail0
     def parse_body(response)
       raw = response.body
       return nil if raw.nil? || raw.strip.empty?
+
       JSON.parse(raw, symbolize_names: true)
     end
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative "lib/rail0/version"
 
 Gem::Specification.new do |spec|
@@ -25,4 +27,5 @@ Gem::Specification.new do |spec|
   # add to your Gemfile:
   #   gem 'eth',     '~> 0.5'
   #   gem 'siwe-rb', '~> 0.2'
+  spec.metadata["rubygems_mfa_required"] = "true"
 end

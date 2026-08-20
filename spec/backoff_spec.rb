@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe Rail0::Backoff do
   # The two decisions that are easy to get backwards, and invisible once they are:
   # a client that waits too little walks back into the limiter, one that waits too long

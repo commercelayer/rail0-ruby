@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # One-shot payment: charge (authorize + capture in a single transaction)
 #
 # Funds move to the payee immediately with no escrow window. Use this when the
@@ -16,7 +18,7 @@ ACCOUNT_ID = ENV.fetch("RAIL0_ACCOUNT_ID")
 BUYER      = ENV.fetch("PAYER_ADDRESS")
 
 GATEWAY = "https://api.rail0.xyz"
-DOMAIN  = "api.rail0.xyz"   # must be one of the gateway's allowed SIWE domains
+DOMAIN  = "api.rail0.xyz" # must be one of the gateway's allowed SIWE domains
 
 # EVERY endpoint under /payments requires a SIWE session, and POST /payments
 # additionally requires the caller to BE the payer (403 payer_must_be_caller
@@ -36,8 +38,8 @@ payer         = session_for(PAYER_KEY)
 payee         = session_for(PAYEE_KEY)
 
 # ── Step 0 — discover a merchant USDC wallet (public) ─────────────────────────
-wallet  = public_client.payment_methods.list(account_id: ACCOUNT_ID)
-              .find { |w| w[:tokens].any? { |t| t[:token][:symbol] == "USDC" } }
+wallet = public_client.payment_methods.list(account_id: ACCOUNT_ID)
+                      .find { |w| w[:tokens].any? { |t| t[:token][:symbol] == "USDC" } }
 raise "no active USDC wallet" unless wallet
 
 token = wallet[:tokens].find { |t| t[:token][:symbol] == "USDC" }[:token]
@@ -47,7 +49,7 @@ puts "Using #{token[:symbol]} on chain #{token[:chain_id]}"
 payment = payer.payments.create(
   chain_id: token[:chain_id],
   mode:     "charge",
-  amount:   "25.00",     # human decimals, NOT base units — the gateway scales
+  amount:   "25.00", # human decimals, NOT base units — the gateway scales
   token:    token[:address],
   payer:    BUYER,
   payee:    wallet[:address],
@@ -72,6 +74,7 @@ loop do
   puts "  status: #{state[:status]}"
   break if state[:status] == "charged"
   raise "failed: #{state[:last_error_code]} — #{state[:last_error_message]}" if state[:status] == "failed"
+
   sleep 2
 end
 puts "Done — payment charged."

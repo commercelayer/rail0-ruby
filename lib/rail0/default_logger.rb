@@ -4,11 +4,15 @@ require "logger"
 
 module Rail0
   # One log record emitted per request attempt.
+  # rubocop:disable Lint/StructNewOverride -- `method` is the HTTP method, which is the right
+  # name for it on a log record. It shadows Struct#method (reflection), which nothing here
+  # uses; renaming the field to avoid that would make every log line read worse.
   LogEntry = Struct.new(
     :method, :url, :duration_ms, :request_body,
     :status, :response_body, :error, :attempt, :will_retry,
     keyword_init: true
   )
+  # rubocop:enable Lint/StructNewOverride
 
   # Default logger for Rail0::Client's `logger:` option. A Logger subclass:
   # formats a Rail0::LogEntry into a one-line summary and logs it through the

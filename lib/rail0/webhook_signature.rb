@@ -38,12 +38,16 @@ module Rail0
       # @param tolerance [Integer] accepted clock skew in seconds, either direction.
       # @param now [Time] injectable clock, for tests.
       # @return [Boolean]
+      # rubocop:disable Naming/PredicateMethod -- `verify` is the SDK's public API and reads
+      # as the action it performs; renaming it `verify?` would break every caller to satisfy
+      # a naming rule about the type it returns.
       def verify(body:, signature:, timestamp:, secret:, tolerance: DEFAULT_TOLERANCE_SECONDS, now: Time.now)
         return false if body.nil? || secret.to_s.empty?
         return false unless fresh?(timestamp, tolerance, now)
 
         secure_equal?(signature.to_s, expected_signature(body, timestamp, secret))
       end
+      # rubocop:enable Naming/PredicateMethod
 
       # The signature the gateway would send for this (timestamp, body). Exposed so a
       # consumer can log or diff the two sides when a delivery is being rejected —

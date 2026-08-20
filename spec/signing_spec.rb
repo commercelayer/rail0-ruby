@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "spec_helper"
 require "rail0/signing"
 
@@ -43,8 +45,8 @@ RSpec.describe Rail0::Signing do
     let(:sig) do
       Rail0::Signing::Eip3009Signature.new(
         v: 27,
-        r: "0x" + "aa" * 32,
-        s: "0x" + "bb" * 32
+        r: "0x#{'aa' * 32}",
+        s: "0x#{'bb' * 32}"
       )
     end
 
@@ -64,7 +66,7 @@ RSpec.describe Rail0::Signing do
     end
 
     it "zero-pads v to two hex digits" do
-      sig28 = Rail0::Signing::Eip3009Signature.new(v: 28, r: "0x" + "cc" * 32, s: "0x" + "dd" * 32)
+      sig28 = Rail0::Signing::Eip3009Signature.new(v: 28, r: "0x#{'cc' * 32}", s: "0x#{'dd' * 32}")
       expect(sig28.to_hex[-2..]).to eq("1c")
     end
   end
@@ -97,7 +99,7 @@ RSpec.describe Rail0::Signing do
     end
 
     it "has v equal to 27 or 28" do
-      expect([27, 28]).to include(sig.v)
+      expect(sig.v).to eq(27).or eq(28)
     end
 
     it "has r and s as 0x-prefixed 66-char hex strings" do
@@ -146,7 +148,7 @@ RSpec.describe Rail0::Signing do
     end
 
     it "refuses a missing primaryType" do
-      expect { Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD.reject { |k, _| k == :primaryType }) }
+      expect { Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD.except(:primaryType)) }
         .to raise_error(ArgumentError, /primaryType/)
     end
 
@@ -160,15 +162,15 @@ RSpec.describe Rail0::Signing do
       base = Rail0::Signing.sign_payload(TEST_PRIVATE_KEY, SIGNING_PAYLOAD).to_hex
 
       mutations = {
-        "message.value"       => { message: SIGNING_PAYLOAD[:message].merge(value: "100000001") },
-        "message.from"        => { message: SIGNING_PAYLOAD[:message].merge(from: "0x0000000000000000000000000000000000000002") },
-        "message.to"          => { message: SIGNING_PAYLOAD[:message].merge(to: "0x0000000000000000000000000000000000000001") },
-        "message.validAfter"  => { message: SIGNING_PAYLOAD[:message].merge(validAfter: "1") },
+        "message.value" => { message: SIGNING_PAYLOAD[:message].merge(value: "100000001") },
+        "message.from" => { message: SIGNING_PAYLOAD[:message].merge(from: "0x0000000000000000000000000000000000000002") },
+        "message.to" => { message: SIGNING_PAYLOAD[:message].merge(to: "0x0000000000000000000000000000000000000001") },
+        "message.validAfter" => { message: SIGNING_PAYLOAD[:message].merge(validAfter: "1") },
         "message.validBefore" => { message: SIGNING_PAYLOAD[:message].merge(validBefore: "8888888888") },
-        "message.nonce"       => { message: SIGNING_PAYLOAD[:message].merge(nonce: "0x#{'cd' * 32}") },
-        "domain.chainId"      => { domain:  SIGNING_PAYLOAD[:domain].merge(chainId: 1) },
-        "domain.name"         => { domain:  SIGNING_PAYLOAD[:domain].merge(name: "Other Coin") },
-        "domain.version"      => { domain:  SIGNING_PAYLOAD[:domain].merge(version: "1") },
+        "message.nonce" => { message: SIGNING_PAYLOAD[:message].merge(nonce: "0x#{'cd' * 32}") },
+        "domain.chainId" => { domain: SIGNING_PAYLOAD[:domain].merge(chainId: 1) },
+        "domain.name" => { domain: SIGNING_PAYLOAD[:domain].merge(name: "Other Coin") },
+        "domain.version" => { domain: SIGNING_PAYLOAD[:domain].merge(version: "1") },
         "domain.verifyingContract" => { domain: SIGNING_PAYLOAD[:domain].merge(verifyingContract: "0x0000000000000000000000000000000000000003") }
       }
 

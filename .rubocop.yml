@@ -1,0 +1,161 @@
+# Style gate for the SDK, added long after the code — so this file calibrates the cops to
+# the style the code already uses consistently, and leaves enabled only the ones that say
+# something. A linter that fights the codebase teaches people to ignore it.
+#
+# Every relaxation below is a decision with a reason. The cops NOT listed are on.
+require:
+  - rubocop-rspec
+
+AllCops:
+  # The plugin nudge is noise in CI output; the extensions we want are in the Gemfile.
+  SuggestExtensions: false
+  # Matches the gemspec, which is the contract — not the newest thing that happens to work.
+  TargetRubyVersion: 3.0
+  NewCops: enable
+  Exclude:
+    - "vendor/**/*"
+    - "tmp/**/*"
+    # A build script that writes SDK files: not shipped, and shaped by what it emits.
+    - "gen/**/*"
+
+# The project writes double quotes everywhere, deliberately and without exception. Rubocop
+# defaults to single; following the default would have rewritten 1139 strings to settle a
+# preference the project had already settled.
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+# Hashes are aligned in columns where that makes a literal readable (a table of chain →
+# address) and key-aligned elsewhere. Both are intentional, so both are allowed.
+Layout/HashAlignment:
+  EnforcedColonStyle:
+    - key
+    - table
+  EnforcedHashRocketStyle:
+    - key
+    - table
+
+# An rspec `describe` is a block, and a long one is a well-covered subject rather than a
+# smell. Same for the gemspec.
+Metrics/BlockLength:
+  # 30, for the HTTP retry loop: one `loop do` that owns attempt counting, backoff, the
+  # Retry-After honouring and cancellation. Splitting it would hide the sequence.
+  Max: 30
+  Exclude:
+    - "spec/**/*"
+    - "*.gemspec"
+
+# The SDK's shape sets these, not a preference: a resource method mirrors an endpoint, so a
+# request builder with eight optional filters has eight parameters, and splitting it into
+# objects would make the SDK less like the API it wraps.
+Metrics/ParameterLists:
+  Max: 10
+  CountKeywordArgs: false
+
+# Signing and error decoding are long by nature: a single EIP-712 payload or a revert
+# decoder is one idea that happens to take thirty lines, and cutting it into named halves
+# that are each called once would spread it rather than simplify it.
+Metrics/MethodLength:
+  Max: 30
+Metrics/AbcSize:
+  Max: 25
+Metrics/CyclomaticComplexity:
+  Max: 12
+Metrics/PerceivedComplexity:
+  Max: 12
+Metrics/ClassLength:
+  Max: 250
+Metrics/ModuleLength:
+  Max: 250
+  Exclude:
+    - "spec/**/*"
+
+# Chain ids and amounts are written the way they appear on chain and in the gateway's
+# seeds — 84532, not 84_532 — so a value can be grepped across repos.
+Style/NumericLiterals:
+  Enabled: false
+
+# A spec's `let` blocks legitimately define constants for the example group.
+Lint/ConstantDefinitionInBlock:
+  Exclude:
+    - "spec/**/*"
+
+# Documentation is in prose above the interesting methods, not as a mandatory class banner.
+Style/Documentation:
+  Enabled: false
+
+# RSpec's own opinions about example length and count say nothing about whether the tests
+# are good; the ones about structure are kept.
+RSpec/ExampleLength:
+  Enabled: false
+RSpec/MultipleExpectations:
+  Enabled: false
+RSpec/NestedGroups:
+  Max: 4
+
+# ── RSpec structure: the project's, not the plugin's ─────────────────────────
+# The specs name the class under test explicitly. `described_class` saves a line and costs
+# a reader the answer to "what is this testing?" — worth it in a long file, not in these.
+RSpec/DescribedClass:
+  Enabled: false
+
+# The spec directory is FLAT (client_spec.rb, signing_spec.rb, analytics_spec.rb) and mirrors
+# the SDK's surface rather than its file tree, so a reader looking for "how do I use
+# analytics" finds one file. Requiring spec/rail0/resources/analytics_spec.rb would nest
+# every file one deep to satisfy a naming rule.
+RSpec/SpecFilePathFormat:
+  Enabled: false
+
+# Some specs describe a behaviour rather than a class — the load path, the default logger's
+# output — and naming a string subject is the honest way to say so.
+RSpec/DescribeClass:
+  Enabled: false
+
+# A constant inside an example group is scoped to that group by intent: a fixture address or
+# a payload shape belongs to the examples that use it, not to the file.
+RSpec/LeakyConstantDeclaration:
+  Exclude:
+    - "spec/**/*"
+
+# One file per subject, and a subject can have two aspects worth their own describe.
+RSpec/MultipleDescribes:
+  Enabled: false
+
+# `x.zero?` RAISES on nil where `x == 0` does not, and both places this cop rewrote compare
+# an OPTIONAL value: `chain_id` is nil when the caller wants every chain. The autocorrection
+# turned two nil-safe guards into NoMethodError, which six specs caught — the cop is right
+# about style and wrong about this code.
+Style/NumericPredicate:
+  Enabled: false
+
+# Off, because neither style is right for this code: the numbers in these names are PROTOCOL
+# identifiers, and each protocol has its own conventional spelling — `retry_on_429` for the
+# HTTP status, `eip712` and `secp256k1` for the standards, which is how they are written
+# everywhere including their own specifications. Enforcing either style renames the other
+# half, and the name is carrying the protocol, not a counter.
+Naming/VariableNumber:
+  Enabled: false
+
+# 120, with three kinds of exception — and ONE block, because a second `Layout/LineLength:`
+# key silently replaces the first in YAML rather than merging with it.
+#
+#   - comments: a usage example a reader can copy is worth more than a wrap, and wrapping a
+#     one-line `client.payments.create(...)` makes it uncopyable;
+#   - data tables: stablecoins, error hints and type aliases are one row per line by design,
+#     and a table is easier to scan than the same rows folded;
+#   - specs: a stub URL or an expected payload wrapped across lines is harder to read than
+#     the long line it came from.
+Layout/LineLength:
+  Max: 120
+  AllowedPatterns:
+    - "^\\s*#"
+  Exclude:
+    - "lib/rail0/stablecoins.rb"
+    - "lib/rail0/error_hints.rb"
+    - "lib/rail0/types.rb"
+    - "spec/**/*"
+
+# The HTTP layer's send-and-retry path: the branching IS the feature (status classes, retry
+# budgets, Retry-After, cancellation), and splitting it into halves each called once would
+# spread the logic rather than reduce it.
+Metrics/AbcSize:
+  Max: 40
