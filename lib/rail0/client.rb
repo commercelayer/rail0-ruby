@@ -6,6 +6,7 @@ require_relative "resources/chains"
 require_relative "resources/tokens"
 require_relative "resources/health"
 require_relative "resources/payment_methods"
+require_relative "resources/accounts"
 require_relative "resources/wallets"
 require_relative "resources/payments"
 require_relative "resources/disputes"
@@ -35,6 +36,8 @@ module Rail0
     #   @return [Resources::Health] Gateway liveness/readiness check.
     # @!attribute [r] payment_methods
     #   @return [Resources::PaymentMethods] Public buyer-facing payment-method discovery.
+    # @!attribute [r] accounts
+    #   @return [Resources::Accounts] The account's own profile (JWT, holder only).
     # @!attribute [r] wallets
     #   @return [Resources::Wallets] Account-scoped wallet management (JWT).
     # @!attribute [r] payments
@@ -46,7 +49,7 @@ module Rail0
     # @!attribute [r] analytics
     #   @return [Resources::Analytics] Account-scoped payment analytics (JWT).
     attr_reader :auth, :chains, :tokens, :health, :payment_methods,
-                :wallets, :payments, :disputes, :webhooks, :analytics
+                :accounts, :wallets, :payments, :disputes, :webhooks, :analytics
 
 
     # @param base_url [String] Base URL of the RAIL0 API, e.g. "https://api.rail0.xyz".
@@ -75,6 +78,7 @@ module Rail0
       @tokens          = Resources::Tokens.new(http)
       @health          = Resources::Health.new(http)
       @payment_methods = Resources::PaymentMethods.new(http)
+      @accounts        = Resources::Accounts.new(http)
       @wallets         = Resources::Wallets.new(http)
       @payments        = Resources::Payments.new(http)
       @disputes        = Resources::Disputes.new(http)

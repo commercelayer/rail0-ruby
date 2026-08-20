@@ -247,6 +247,11 @@ client.payments.create(params, idempotency_key: nil)  # or keyword fields
 client.payments.get(id)
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
 client.payments.transactions(id, operation: "capture")
+# Each row carries the on-chain gas data (gas_used, effective_gas_price, gas_cost) and
+# `sender`: the address the gateway RECOVERED from the signature at submit. Null for a
+# report-by-hash submit, where the wallet broadcast it itself and the gateway held no
+# signature — which is why a `release` (payer OR payee) is only counted as the merchant's
+# gas when that field names one of its wallets.
 client.payments.sign(id, { signature: "0x…" })
 client.payments.disputes(id, status: "open")   # one payment's dispute history
 
@@ -352,6 +357,22 @@ outside ±300s (`tolerance:` to change it) **even when the digest matches** — 
 window is what bounds a replay of a captured delivery. Pass the body exactly as
 received: re-serialising a parsed hash changes key order and whitespace, and the
 digest with it. Comparison is constant-time.
+
+## Account (JWT)
+
+```ruby
+# The caller's OWN profile. The gateway guards /accounts/:id with an ownership check
+# (a JWT whose account matches the path), so there is no way to read another
+# merchant's account — and an id that is not an account answers 404 exactly as
+# another account's id does, so the pair says nothing about existence.
+client.accounts.get(account_id)
+# => { id: "019f…", name: "Test Merchant", email: "merchant@rail0.test",
+#      created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" }
+```
+
+`email` is in the response because the holder is this endpoint's only possible caller.
+The account's wallets are a collection under the same path (`client.wallets`), and
+buyer-facing discovery is `client.payment_methods`.
 
 ## Analytics (JWT)
 
