@@ -49,11 +49,20 @@ module Rail0
       #     authorized, `settled` held by the payee net of refunds, `escrowed` still in
       #     escrow, and gross `captured`/`refunded` from the confirmed transactions. The
       #     first two say where the money IS, the last two what HAPPENED.
+      #   * `failures` — why the merchant's transactions failed, commonest first: one row of
+      #     `code` (the same catalogue an error body uses, or "unknown") and `transactions`.
+      #     `failed_rate` says how much fails; this says what to act on — a revert is a state
+      #     problem (an amount above the residual, a closed window) while a rejection that
+      #     never reached the chain is a wallet problem (no gas money, a used nonce).
       #   * `gas` — one row per CHAIN, in that chain's NATIVE token (`decimals` 18, never
       #     the payment token): `spent` on confirmed transactions, `wasted` burned by
       #     on-chain reverts, `confirmed`/`failed` counts, and `orders` — the payments
       #     behind the figures, which is the denominator for the average cost of an order.
-      #     Never sum across chains: Base ETH and Polygon POL are different currencies.
+      #     Never sum across chains: Base ETH and Polygon POL are different currencies. Each
+      #     row also carries `confirmation_secs`: mean seconds from broadcast to confirmation
+      #     on that chain, weighted by its confirmations, and nil when none confirmed — not
+      #     0, which would read as instant. Per chain, because a chain that wants 60
+      #     confirmations and one that wants 4 are not comparable.
       #   * `gas_by_status`, `gas_by_operation` — those same rows regrouped, each carrying
       #     a `key` (the status / the operation). Every cut adds back up to its chain's
       #     `gas` row. `orders` is null on the operation cut, since one order spans several
@@ -77,11 +86,14 @@ module Rail0
       end
 
       # The account's payments aggregated by one dimension.
-      # @param by [String] Required — "token", "chain", "mode" or "status".
+      # @param by [String] Required — "token", "chain", "mode", "status" or "operation".
       # @return [Array<Hash>] one row per group: `key` (the dimension value) and `orders`.
       #   token/chain rows also carry `token`, `chain_id`, `decimals` and `volume`;
       #   mode/status rows leave those null, since summing money across tokens would add
-      #   different currencies.
+      #   different currencies. An `operation` row groups the merchant's own CONFIRMED
+      #   transactions rather than payments, so it reports both counts: `transactions` is how
+      #   often the operation ran — a partial capture runs several times on one order — and
+      #   `orders` is how many orders it touched.
       def breakdown(by:, **filters)
         raise ArgumentError, "by is required (token, chain, mode or status)" if by.nil? || by.to_s.empty?
 

@@ -404,7 +404,16 @@ kpis[:volume].first
 # `orders` is the denominator for the average cost of an order.
 kpis[:gas].first
 # => { chain_id: 84532, chain_name: "Base Sepolia", symbol: "ETH", decimals: 18,
-#      orders: 12, spent: "72000", wasted: "10000", confirmed: 14, failed: 2 }
+#      orders: 12, spent: "72000", wasted: "10000", confirmed: 14, failed: 2,
+#      confirmation_secs: 45 }
+# confirmation_secs is the mean broadcast->confirmation for THAT chain (weighted by its
+# confirmations), nil when none confirmed — not 0, which would read as instant.
+
+# Why the failures failed, commonest first. failed_rate says how much fails; this says what
+# to act on: a revert is a state problem, a rejection that never reached the chain is a
+# wallet problem.
+kpis[:failures]
+# => [{ code: "insufficient_gas_funds", transactions: 2 }, { code: "nonce_too_low", … }]
 
 # The same rows regrouped, each with the `key` naming the cut; every cut adds back up to
 # its chain's `gas` row. `orders` is nil on the operation cut — one order spans several
@@ -422,7 +431,14 @@ client.analytics.timeseries(interval: "day", from: "2026-07-01T00:00:00Z")
 # filtered; otherwise `volume` is nil. "day" (default), "week" or "month" — no hourly.
 
 client.analytics.breakdown(by: "chain")
-# => [{ key: "Base Sepolia", chain_id: 84532, orders: 9 }, …]  by: token|chain|mode|status
+# => [{ key: "Base Sepolia", chain_id: 84532, orders: 9 }, …]
+# by: token | chain | mode | status | operation
+
+# "operation" is the one dimension that groups the merchant's own CONFIRMED transactions
+# rather than payments, so it reports both counts: `transactions` is how often it ran (a
+# partial capture runs several times on one order), `orders` how many it touched.
+client.analytics.breakdown(by: "operation")
+# => [{ key: "capture", orders: 1, transactions: 2 }, …]
 ```
 
 All three take the same filters — `mode`, `status`, `token`, `chain_id`, `from`, `to` — so

@@ -17,11 +17,14 @@ RSpec.describe Rail0::Resources::Analytics do
     {
       orders: 3, disputed: 1, refund_rate: 0.3333, dispute_rate: 0.3333, failed_rate: 0.25,
       by_status: { captured: 2, refunded: 1 },
+      failures: [{ code: "insufficient_gas_funds", transactions: 2 },
+                 { code: "nonce_too_low", transactions: 1 }],
       volume: [{ chain_id: 84_532, token: "0xtok", symbol: "USDC", decimals: 6, orders: 3,
                  gross: "3000000", settled: "2000000", escrowed: "0",
                  captured: "3000000", refunded: "1000000" }],
       gas: [{ chain_id: 84_532, chain_name: "Base Sepolia", symbol: "ETH", decimals: 18,
-              orders: 3, spent: "72000", wasted: "10000", confirmed: 3, failed: 1 }],
+              orders: 3, spent: "72000", wasted: "10000", confirmed: 3, failed: 1,
+              confirmation_secs: 45 }],
       gas_by_status: [
         { chain_id: 84_532, key: "captured", orders: 2, spent: "62000", wasted: "0",
           confirmed: 2, failed: 0 },
@@ -48,7 +51,10 @@ RSpec.describe Rail0::Resources::Analytics do
       # Where the money IS, alongside what HAPPENED — both pairs, not one.
       expect(kpis[:volume].first).to include(settled: "2000000", captured: "3000000")
       # Gas is the CHAIN's native token, never the payment token.
-      expect(kpis[:gas].first).to include(symbol: "ETH", decimals: 18, orders: 3)
+      expect(kpis[:gas].first).to include(symbol: "ETH", decimals: 18, orders: 3,
+                                          confirmation_secs: 45)
+      # failed_rate says how much fails; failures says what to act on, commonest first.
+      expect(kpis[:failures].first).to eq({ code: "insufficient_gas_funds", transactions: 2 })
     end
 
     it "slices the gas two ways, and each cut sums back to its chain's row" do
@@ -98,6 +104,18 @@ RSpec.describe Rail0::Resources::Analytics do
   end
 
   describe "#breakdown" do
+    it "groups the merchant's own confirmed transactions when asked by operation" do
+      stub_request(:get, "#{BASE_URL}/analytics/breakdown")
+        .with(query: { by: "operation" })
+        .to_return(status: 200,
+                   body: [{ key: "capture", orders: 1, transactions: 2 }].to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      # transactions is not orders: a partial capture runs several times on one order.
+      expect(client.analytics.breakdown(by: "operation").first)
+        .to include(key: "capture", orders: 1, transactions: 2)
+    end
+
     it "requires a dimension, and asks for it" do
       expect { client.analytics.breakdown(by: nil) }.to raise_error(ArgumentError, /by is required/)
 
