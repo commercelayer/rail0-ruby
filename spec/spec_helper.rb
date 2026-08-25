@@ -132,7 +132,7 @@ WALLET_BALANCES = {
 # Webhook::Restricted / Webhook::WithSecret
 WEBHOOK = {
   id: WEBHOOK_ID, name: "orders", callback_url: "https://merchant.example/hook",
-  topic: "payments.captured", active: true, circuit_state: "closed",
+  topics: ["payments.captured", "payments.refunded"], active: true, circuit_state: "closed",
   circuit_failure_count: 0, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z"
 }.freeze
 WEBHOOK_WITH_SECRET = WEBHOOK.merge(shared_secret: "whsec_test_abc123").freeze

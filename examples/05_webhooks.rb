@@ -2,7 +2,7 @@
 
 # Manage webhook subscriptions (requires a JWT).
 #
-# A webhook subscribes to exactly one topic and delivers a signed POST to your
+# A subscription carries a set of topics and delivers a signed POST to your
 # callback URL when that event fires. The shared secret used to verify delivery
 # signatures is shown only once, on create and rotate.
 
@@ -23,14 +23,16 @@ api  = Rail0::Client.new(
 hook = api.webhooks.create(
   name:         "captured-orders",
   callback_url: "https://merchant.example/rail0/webhook",
-  topic:        "payments.captured" # see Rail0::Resources::Webhooks::TOPICS
+  # One subscription for the whole order lifecycle: one secret to verify against, one
+  # circuit breaker. See Rail0::Resources::Webhooks::TOPICS.
+  topics:       %w[payments.authorized payments.captured payments.voided payments.refunded]
 )
 puts "Created webhook #{hook[:id]}"
 puts "Shared secret (store it now — shown only once): #{hook[:shared_secret]}"
 
 # ── List / inspect ────────────────────────────────────────────────────────────
 api.webhooks.list(active: true)[:data].each do |w|
-  puts "  #{w[:id]} #{w[:topic]} circuit=#{w[:circuit_state]}"
+  puts "  #{w[:id]} #{Array(w[:topics]).join(',')} circuit=#{w[:circuit_state]}"
 end
 
 # ── Update the callback URL ───────────────────────────────────────────────────

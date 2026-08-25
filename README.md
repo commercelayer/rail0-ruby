@@ -308,17 +308,24 @@ client.payments.submit_by_hash(id, "capture", { transaction_hash: "0x…" })
 
 ## Webhooks (JWT)
 
-A webhook subscribes to exactly one topic (see `Rail0::Resources::Webhooks::TOPICS`).
+One subscription carries a **set** of topics (see `Rail0::Resources::Webhooks::TOPICS`):
+one shared secret and one circuit breaker for all of them, with each delivery naming the
+event that fired in `X-Rail0-Topic`. Two subscriptions for the same `callback_url` must not
+overlap — the gateway answers 409 and names the topic that collided.
 
 ```ruby
 hook = client.webhooks.create(
-  name: "orders", callback_url: "https://merchant.example/hook", topic: "payments.captured"
+  name: "order-lifecycle", callback_url: "https://merchant.example/hook",
+  topics: ["payments.authorized", "payments.captured", "payments.voided", "payments.refunded"]
 )
 hook[:shared_secret]                 # shown once — verify delivery signatures with it
 
+# `topic:` is singular here on purpose: which subscriptions deliver THIS event.
 client.webhooks.list(topic: "payments.captured", active: true)
 client.webhooks.get(id)
 client.webhooks.update(id, callback_url: "https://new.example/hook")
+# topics REPLACES the set, so this is also how a topic is removed. The secret is untouched.
+client.webhooks.update(id, topics: ["payments.captured", "payments.refunded"])
 client.webhooks.enable(id)
 client.webhooks.disable(id)
 client.webhooks.rotate_secret(id)    # returns a fresh shared_secret

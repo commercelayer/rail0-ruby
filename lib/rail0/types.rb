@@ -234,7 +234,7 @@ module Rail0
       :id,                     # String
       :name,                   # String
       :callback_url,           # String
-      :topic,                  # WebhookTopic
+      :topics,                 # Array<WebhookTopic> — every event this subscription delivers
       :active,                 # Boolean
       :circuit_state,          # String
       :circuit_failure_count,  # Integer
