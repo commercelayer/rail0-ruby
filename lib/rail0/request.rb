@@ -172,12 +172,17 @@ module Rail0
       {}
     end
 
+    # The gateway answers exactly code/title/detail, having DELETED the older aliases
+    # rather than dual-sending them (#252) — `status` (the wider family), `message`
+    # (equal to detail) and Grape's `error`. The chains that read them could only ever
+    # find absent keys, so each collapses to the one field there is. The bare HTTP status
+    # stays as the last resort for a body with no text at all.
     def error_code(body)
-      body[:code] || body[:error] || body[:status]
+      body[:code]
     end
 
     def error_message(body, response = nil)
-      body[:detail] || body[:message] || body[:error] || (response && "HTTP #{response.code}")
+      body[:detail] || (response && "HTTP #{response.code}")
     end
 
     def elapsed_ms(start)

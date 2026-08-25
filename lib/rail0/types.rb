@@ -172,6 +172,10 @@ module Rail0
       :amount,                # String
       :capturable_amount,     # String — Mirrors on-chain capturableAmount (escrow still held); base units.
       :refundable_amount,     # String — Mirrors on-chain refundableAmount (held by payee, still refundable); base units.
+      # The window after a PARTIAL capture where neither void nor release can return the
+      # buyer's remaining escrow — the answer to "why did both just refuse?".
+      :escrow_stranded,       # Boolean
+      :escrow_returnable_at,  # String, nil — ISO-8601 end of that window; nil outside it.
       :config_hash,           # String
       :payer,                 # String
       :payee,                 # String

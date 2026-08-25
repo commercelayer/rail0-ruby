@@ -179,7 +179,8 @@ RSpec.describe Rail0::Client do
 
     it "raises Rail0::ApiError when the address is not registered" do
       stub_post("/auth/nonces", NONCE_RESPONSE, status: 201)
-      stub_post("/auth", { status: "address_not_registered", message: "Address is not registered." }, status: 403)
+      stub_post("/auth", { code: "address_not_registered", title: "Address not registered",
+                           detail: "Address is not registered." }, status: 403)
 
       expect { client.auth.login(private_key: key, domain: "api.rail0.xyz") }
         .to raise_error(Rail0::ApiError) do |err|
@@ -630,9 +631,9 @@ RSpec.describe Rail0::Client do
   # ── Error handling ─────────────────────────────────────────────────────────
 
   describe "error handling" do
-    it "raises Rail0::ApiError on 422 with status/message" do
+    it "raises Rail0::ApiError on 422 with code/detail" do
       stub_get("/payments/#{PAYMENT_ID}",
-               { status: "payment_not_found", message: "No payment exists for the given id." }, status: 422)
+               { code: "payment_not_found", detail: "No payment exists for the given id." }, status: 422)
       expect { client.payments.get(PAYMENT_ID) }
         .to raise_error(Rail0::ApiError) do |err|
           expect(err.status).to eq(422)
@@ -643,7 +644,7 @@ RSpec.describe Rail0::Client do
 
     it "raises Rail0::ApiError on a 422 state error" do
       stub_post("/payments/#{PAYMENT_ID}/capture",
-                { status: "not_capturable", message: "Payment is not capturable." }, status: 422)
+                { code: "not_capturable", detail: "Payment is not capturable." }, status: 422)
       expect { client.payments.capture(PAYMENT_ID, { signed_transaction: "0x02" }) }
         .to raise_error(Rail0::ApiError) { |err| expect(err.error).to eq("not_capturable") }
     end
@@ -691,7 +692,7 @@ RSpec.describe Rail0::Client do
       attempts = 0
       stub_request(:get, "#{BASE_URL}/payments/#{PAYMENT_ID}").to_return do
         attempts += 1
-        { status: 422, body: { status: "payment_not_found", message: "x" }.to_json, headers: json_headers }
+        { status: 422, body: { code: "payment_not_found", detail: "x" }.to_json, headers: json_headers }
       end
       retrying = Rail0::Client.new(base_url: BASE_URL, max_retries: 2, retry_delay: 0)
       expect { retrying.payments.get(PAYMENT_ID) }.to raise_error(Rail0::ApiError)

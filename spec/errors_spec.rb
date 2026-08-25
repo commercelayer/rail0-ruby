@@ -34,9 +34,11 @@ RSpec.describe "error surface" do
     expect(error.status).to eq(422)
   end
 
-  # An older gateway sends neither code nor detail: the specific condition arrives in
-  # `error` and the text in `message`. Both must still surface.
-  it "falls back to the pre-code/title/detail field names" do
+  # This used to assert the OPPOSITE: that an older gateway's `status`/`error`/`message`
+  # still surfaced. Those keys were deleted from the wire rather than dual-sent (#252),
+  # so what matters now is that a body carrying only them yields nothing pretending to be
+  # a code — a silent "" would be branched on as if it were a real condition.
+  it "does not invent a code from the deleted alias fields" do
     stub_error(422, { status: "invalid_state", error: "not_capturable", message: "no capturable balance" })
 
     error = begin
@@ -45,8 +47,8 @@ RSpec.describe "error surface" do
       e
     end
 
-    expect(error.error).to eq("not_capturable")
-    expect(error.detail).to eq("no capturable balance")
+    expect(error.error).to be_nil
+    expect(error.detail).to eq("HTTP 422")
     expect(error.title).to be_nil
   end
 
