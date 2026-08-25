@@ -119,10 +119,14 @@ client.payments.submit_by_hash(rail0_id, "capture", { transaction_hash: "0x…" 
 | `dispute_submit_by_hash` / `close_dispute_submit_by_hash` | payer | Report a dispute tx the wallet already broadcast |
 
 **Payment statuses:** `unsigned`, `signed`, `authorized`, `charged`, `captured`,
-`partially_captured`, `voided`, `released`, `refunded` — plus `partially_refunded`,
-which is no longer produced (a partial refund deliberately leaves the status alone)
-but is still a legal value on historical rows, so don't write an exhaustive `case`
-that raises on it.
+`partially_captured`, `voided`, `released`, `refunded`, `expired` — plus
+`partially_refunded`, which is no longer produced (a partial refund deliberately leaves
+the status alone) but is still a legal value on historical rows, so don't write an
+exhaustive `case` that raises on it.
+
+`expired` is a never-captured authorization whose window lapsed. It is **not** terminal:
+the escrow is still on-chain and `release` still works from it (closing the payment as
+`released`), so treating it as closed leaves the buyer's funds where they are.
 **Transaction statuses:** `pending`, `submitting`, `submitted`, `confirmed`, `failed`.
 
 ## Authentication (SIWE)
