@@ -580,15 +580,16 @@ RSpec.describe Rail0::Client do
     it "list returns a paginated envelope" do
       stub_list("/webhooks?topic=payments.captured", [WEBHOOK])
       result = client.webhooks.list(topic: "payments.captured")
-      expect(result[:data].first[:topic]).to eq("payments.captured")
+      expect(result[:data].first[:topics]).to include("payments.captured")
     end
 
     it "create returns the one-time shared_secret" do
       stub = stub_request(:post, "#{BASE_URL}/webhooks")
-             .with(body: { name: "orders", callback_url: "https://merchant.example/hook", topic: "payments.captured" })
+             .with(body: { name: "orders", callback_url: "https://merchant.example/hook",
+                           topics: ["payments.captured", "payments.refunded"] })
              .to_return(status: 201, body: WEBHOOK_WITH_SECRET.to_json, headers: json_headers)
       result = client.webhooks.create(name: "orders", callback_url: "https://merchant.example/hook",
-                                      topic: "payments.captured")
+                                      topics: ["payments.captured", "payments.refunded"])
       expect(stub).to have_been_requested
       expect(result[:shared_secret]).to eq("whsec_test_abc123")
     end

@@ -4,12 +4,18 @@ require_relative "query"
 
 module Rail0
   module Resources
-    # Webhook subscription management (requires JWT). A webhook subscribes to
-    # exactly one topic; see {TOPICS} for the accepted values.
+    # Webhook subscription management (requires JWT).
+    #
+    # A subscription covers a SET of topics — one shared secret and one circuit breaker
+    # for all of them — and each delivery names the event that fired in `X-Rail0-Topic`.
+    # Two subscriptions for the same callback_url must not overlap: one event delivered
+    # twice under two different secrets is indistinguishable from a duplicate at the
+    # receiving end, so the gateway answers 409 and names the topic that collided.
+    # See {TOPICS} for the accepted values.
     class Webhooks
       include Query
 
-      # Event topics a webhook can subscribe to. A webhook subscribes to one.
+      # Event topics a subscription can carry. It may carry any non-empty subset.
       TOPICS = %w[
         payments.created
         payments.signed
@@ -19,6 +25,7 @@ module Rail0
         payments.voided
         payments.released
         payments.refunded
+        payments.expired
         payments.failed
         payments.disputed
         payments.dispute_closed
@@ -32,7 +39,9 @@ module Rail0
       end
 
       # List the account's webhooks.
-      # @param topic [String, nil] Filter by topic (see {TOPICS}).
+      # @param topic [String, nil] Narrow to subscriptions that INCLUDE this event
+      #   (see {TOPICS}). Singular on purpose: the question is which subscriptions
+      #   deliver one event, whatever else they also deliver.
       # @param active [Boolean, nil] Filter by active flag.
       # @param circuit_state [String, nil] Filter by circuit state ("closed" or "open").
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
@@ -49,10 +58,12 @@ module Rail0
       # used to verify delivery signatures — it is shown only on create and rotate.
       # @param name [String] Human-readable name.
       # @param callback_url [String] HTTPS URL the gateway POSTs events to.
-      # @param topic [String] One of {TOPICS}.
+      # @param topics [Array<String>] One or more of {TOPICS}. Repeats are collapsed by
+      #   the gateway; overlapping another subscription on the same callback_url is a 409
+      #   naming the topic that collided.
       # @return [Hash] webhook record including shared_secret
-      def create(name:, callback_url:, topic:)
-        http.post("/webhooks", { name: name, callback_url: callback_url, topic: topic })
+      def create(name:, callback_url:, topics:)
+        http.post("/webhooks", { name: name, callback_url: callback_url, topics: Array(topics) })
       end
 
       # Fetch a single webhook.
@@ -62,17 +73,19 @@ module Rail0
         http.get("/webhooks/#{id}")
       end
 
-      # Update a webhook's name, callback_url, and/or topic.
+      # Update a webhook's name, callback_url, and/or topics.
       # @param id [String] Webhook UUID.
       # @param name [String, nil]
       # @param callback_url [String, nil]
-      # @param topic [String, nil] One of {TOPICS}.
+      # @param topics [Array<String>, nil] REPLACES the whole set, which is also how a
+      #   topic is removed: send the union to add one, the remainder to drop one. The
+      #   shared secret is untouched.
       # @return [Hash]
-      def update(id, name: nil, callback_url: nil, topic: nil)
+      def update(id, name: nil, callback_url: nil, topics: nil)
         body = {}
-        body[:name]         = name         unless name.nil?
-        body[:callback_url] = callback_url unless callback_url.nil?
-        body[:topic]        = topic        unless topic.nil?
+        body[:name]         = name          unless name.nil?
+        body[:callback_url] = callback_url  unless callback_url.nil?
+        body[:topics]       = Array(topics) unless topics.nil?
         http.patch("/webhooks/#{id}", body)
       end
 
