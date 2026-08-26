@@ -100,12 +100,19 @@ module Rail0
     )
 
     # Public blockchain view.
+    #
+    # required_confirmations and finality_tag together say how long a payer waits. Read
+    # the PAIR, not the number: where a chain serves a finality tag the gateway gates on
+    # that tag, and the count is the fallback for chains serving none — so quoting the
+    # count on a tagged chain names a wait nobody applies.
     Blockchain = Struct.new(
-      :chain_id,       # Integer
-      :name,           # String
-      :native_symbol,  # String
-      :network_type,   # String
-      :explorer_url,   # String
+      :chain_id,               # Integer
+      :name,                   # String
+      :native_symbol,          # String
+      :network_type,           # String
+      :explorer_url,           # String
+      :required_confirmations, # Integer
+      :finality_tag,           # String, nil where the chain serves no tag
       keyword_init: true
     )
 

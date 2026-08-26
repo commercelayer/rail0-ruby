@@ -18,7 +18,9 @@ module Rail0
       # List active blockchains supported by RAIL0.
       # @param network_type [String, nil] Filter by "testnet" or "mainnet".
       # @param symbol [String, nil] Filter by native symbol (case-insensitive, e.g. "ETH").
-      # @return [Array<Hash>] chain_id, name, native_symbol, network_type, explorer_url
+      # @return [Array<Hash>] chain_id, name, native_symbol, network_type, explorer_url,
+      #   required_confirmations, finality_tag (the settlement rule: the tag where the
+      #   chain serves one, the count only where it does not)
       def list(network_type: nil, symbol: nil)
         http.get("/blockchains#{build_query(network_type: network_type, symbol: symbol)}")
       end
