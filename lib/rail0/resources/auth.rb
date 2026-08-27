@@ -53,6 +53,25 @@ module Rail0
         http.post("/auth/logout", {})
       end
 
+      # End EVERY session of the calling address (POST /auth/revoke_all).
+      #
+      # The answer to a key you no longer trust, and {#logout} cannot be that answer: it
+      # is per TOKEN, so an address with five live sessions needs five tokens the caller
+      # does not have. This is per ADDRESS and reaches the ones it never saw — including
+      # any an attacker is holding.
+      #
+      # The gateway records a cutoff INSTANT rather than enumerating tokens, so a session
+      # minted a moment before the call is refused by its own `iat`. That is what makes it
+      # durable where a denylist is not: there is nothing to enumerate and nothing to miss.
+      #
+      # `cutoff` is the field worth logging. It says exactly which sessions died, which
+      # `revoked: true` cannot.
+      #
+      # @return [Hash] { revoked: true|false, cutoff: "2026-08-27T21:00:00Z" }
+      def revoke_all
+        http.post("/auth/revoke_all", {})
+      end
+
       # Perform the full SIWE authentication flow:
       #   1. Fetch a nonce
       #   2. Build an EIP-4361 message via siwe-rb

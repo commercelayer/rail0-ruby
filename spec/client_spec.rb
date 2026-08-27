@@ -128,6 +128,33 @@ RSpec.describe Rail0::Client do
     end
   end
 
+  describe "auth.revoke_all" do
+    # The distinction that makes this endpoint worth having: logout ends ONE token, this
+    # ends every session of the address — including the ones the caller has never seen,
+    # which is the whole case for a leaked key.
+    it "POSTs /auth/revoke_all and returns the cutoff" do
+      stub = stub_post("/auth/revoke_all", { revoked: true, cutoff: "2026-08-27T21:00:00Z" })
+      result = client.auth.revoke_all
+      expect(stub).to have_been_requested
+      expect(result[:revoked]).to be(true)
+      # The cutoff, not just the boolean: it says exactly which sessions died.
+      expect(result[:cutoff]).to eq("2026-08-27T21:00:00Z")
+    end
+  end
+
+  describe "payments.redrive" do
+    # The gateway resolves the transaction id THROUGH the payment, so the path must carry
+    # both — a client that built it from the transaction id alone would look correct until
+    # it retried a stranger's broadcast.
+    it "POSTs the payment-scoped redrive path" do
+      stub = stub_post("/payments/#{PAYMENT_ID}/transactions/tx-1/redrive",
+                       { id: "tx-1", operation: "capture", status: "pending" })
+      result = client.payments.redrive(PAYMENT_ID, "tx-1")
+      expect(stub).to have_been_requested
+      expect(result[:id]).to eq("tx-1")
+    end
+  end
+
   describe "auth.logout" do
     it "POSTs /auth/logout and returns the revocation outcome" do
       stub = stub_post("/auth/logout", { revoked: true })

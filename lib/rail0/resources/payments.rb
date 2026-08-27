@@ -98,6 +98,29 @@ module Rail0
         http.get_list("/payments/#{id}/transactions#{query}")
       end
 
+      # Re-enqueue a stuck broadcast
+      # (POST /payments/{id}/transactions/{transaction_id}/redrive).
+      #
+      # For the one shape a retry can fix: a transaction that is `pending` and whose
+      # SIGNED bytes the gateway already holds — prepared and signed, never landed on the
+      # chain (a worker that died between the two, a queue drained by hand). Nothing about
+      # the payment changes; the same bytes go back to the broadcaster.
+      #
+      # Offer this on the transaction's `redrivable` flag, which is the same predicate the
+      # gateway guards the route with — not on `status == "pending"`. A pending row holding
+      # no signed transaction is NOT redrivable, and there the next step is submitting the
+      # signature, not retrying a send that never happened.
+      #
+      # The transaction id is resolved THROUGH the payment, so one belonging to another
+      # payment answers 404 rather than redriving someone else's row.
+      #
+      # @param id [String] Payment UUID or rail0_id.
+      # @param transaction_id [String] The transaction row to redrive.
+      # @return [Hash] The transaction, re-enqueued.
+      def redrive(id, transaction_id)
+        http.post("/payments/#{id}/transactions/#{transaction_id}/redrive", {})
+      end
+
       # Submit the payer's EIP-712 signature (PUT /payments/{id}/sign).
       # @param id [String] Payment UUID or rail0_id.
       # @param params [Hash] { signature: "0x…" } (65-byte 0x-prefixed hex).

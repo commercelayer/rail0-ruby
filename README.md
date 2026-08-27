@@ -179,6 +179,7 @@ Lower-level building blocks are also available:
 nonce   = client.auth.nonce                                  # POST /auth/nonces
 session = client.auth.verify(message: siwe_msg, signature: sig)  # POST /auth
 client.auth.logout                                           # POST /auth/logout
+client.auth.revoke_all                                       # POST /auth/revoke_all
 ```
 
 `logout` revokes **the token this client carries**, not every session for the address —
@@ -186,6 +187,15 @@ signing out one process leaves the others signed in. Read the answer: the gatewa
 denylist **fails open** by design (a store outage must not sign out the whole platform),
 so `{ revoked: false }` means the token is *still usable* until it expires, and the
 caller should treat its own copy as compromised rather than assume the session is gone.
+
+`revoke_all` is the other question, and `logout` cannot answer it: an address with five
+live sessions would need five tokens you do not have. This is per **address** and reaches
+the ones you never saw — including any an attacker is holding — which makes it the call
+for a key you no longer trust. The gateway records a cutoff **instant** rather than
+enumerating tokens, so a session minted a moment before the call is refused by its own
+`iat`; that is what makes it durable where a denylist is not. The returned `cutoff` is
+the field worth logging: it says exactly which sessions died, which `revoked: true`
+cannot.
 
 ## Catalog (public)
 
@@ -251,6 +261,11 @@ client.payments.create(params, idempotency_key: nil)  # or keyword fields
 client.payments.get(id)
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
 client.payments.transactions(id, operation: "capture")
+client.payments.redrive(id, transaction_id)           # re-enqueue a stuck broadcast
+# Offer `redrive` on the row's `redrivable` flag — the same predicate the gateway guards
+# the route with — and not on `status == "pending"`: a pending row holding no signed
+# transaction is not redrivable, and there the next step is submitting the signature, not
+# retrying a send that never happened.
 # Each row carries the on-chain gas data (gas_used, effective_gas_price, gas_cost) and
 # `sender`: the address the gateway RECOVERED from the signature at submit. Null for a
 # report-by-hash submit, where the wallet broadcast it itself and the gateway held no
