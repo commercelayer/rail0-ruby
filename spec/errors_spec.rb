@@ -112,10 +112,19 @@ RSpec.describe "error surface" do
       end
     end
 
-    # `forbidden` is the one whose hint has to say something the code cannot: the
-    # payer/caller rule on create is the most common way to hit it.
-    it "explains what forbidden usually means on create" do
-      expect(Rail0.describe_error("forbidden")).to include("payer")
+    # `forbidden` is the one whose hint has to say something the code cannot, because the
+    # gateway sends it with NO detail for the case that matters most — a missing operator
+    # grant — so the hint is everything the caller reads.
+    #
+    # It used to promise the payer rule on create, and this example pinned that promise.
+    # Both were wrong: the gateway split the party mismatches into codes of their own
+    # (not_the_payee, not_the_payer, wallet_deactivated, not_your_account) and no longer
+    # has the rule at all. The negative assertion is the guard — it is exactly the sentence
+    # that crept in and stayed.
+    it "names what a bare forbidden actually is, not the rule that was split out" do
+      hint = Rail0.describe_error("forbidden")
+      expect(hint).to include("operator grant")
+      expect(hint).not_to include("payer")
     end
   end
 end
