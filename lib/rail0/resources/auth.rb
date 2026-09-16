@@ -14,6 +14,23 @@ module Rail0
     #   auth = client.auth.login(private_key: "0x...", domain: "api.rail0.xyz")
     #   client = Rail0::Client.new(base_url: BASE, headers: { "Authorization" => "Bearer #{auth[:token]}" })
     class Auth
+      # The SIWE statement for signing in — POST /auth. Kept identical to
+      # rail0-go's and rail0-ts's, so every SDK puts the same text in front of the
+      # user for the same handshake.
+      LOGIN_STATEMENT = "Sign in to RAIL0"
+
+      # The SIWE statement for proving ownership of a wallet being registered —
+      # POST /accounts/:id/wallets.
+      #
+      # A SEPARATE statement, and the separation is the security property rather
+      # than cosmetic: the gateway binds each endpoint to exactly one of these
+      # (Policy::SIWE_LOGIN_STATEMENT / SIWE_WALLET_LINK_STATEMENT) and refuses the
+      # other with 422 siwe_purpose_mismatch. A login signature is handed out on
+      # every sign-in, so a wallet-link endpoint that also accepted one would let
+      # anyone holding a captured login proof bind that address to their OWN
+      # account. Never collapse the two into a single constant.
+      WALLET_LINK_STATEMENT = "Add this wallet to your RAIL0 account"
+
       attr_reader :http
 
       def initialize(http)
@@ -87,27 +104,57 @@ module Rail0
       #   gateway is configured with a different login chain.
       # @return [Hash] { token:, address:, account_id:, name:, expires_at: }
       def login(private_key:, domain:, chain_id: 1)
+        message, signature = sign_proof(private_key, domain, chain_id, LOGIN_STATEMENT)
+        verify(message: message, signature: signature)
+      end
+
+      # SIWE proof-of-ownership of the address controlled by +private_key+, to hand
+      # to Wallets#create as its +message+ and +signature+.
+      #
+      # The same handshake as #login — fetch a single-use nonce, build an EIP-4361
+      # message, sign it with EIP-191 personal_sign — but it stops short of POST
+      # /auth: it does NOT authenticate the client. Registering a wallet proves
+      # control of the ADDED address, while the request itself is authorized by the
+      # caller's existing session, and the two addresses may differ (a merchant may
+      # register several payee wallets under one account).
+      #
+      # +private_key+ must therefore be the key OF the address being added, not the
+      # session key — the gateway rejects a signature that does not recover to the
+      # submitted address with 422.
+      #
+      # Requires the optional 'eth' and 'siwe-rb' gems.
+      #
+      # @param private_key [String] 0x-prefixed hex private key of the address being added.
+      # @param domain      [String] Host of the API server (e.g. "api.rail0.xyz").
+      # @param chain_id    [Integer] Chain ID to embed; same meaning and default as #login.
+      # @return [Hash] { message:, signature: } — pass straight to Wallets#create.
+      def prove_address(private_key:, domain:, chain_id: 1)
+        message, signature = sign_proof(private_key, domain, chain_id, WALLET_LINK_STATEMENT)
+        { message: message, signature: signature }
+      end
+
+      private
+
+      # The shared core of both handshakes. Everything but the STATEMENT is
+      # identical, which is precisely why the statement is a parameter and never a
+      # default — see the note on the two constants.
+      def sign_proof(private_key, domain, chain_id, statement)
         ensure_signing_deps!
 
         nonce_resp = nonce
         key        = build_eth_key(private_key)
-        address    = key.address.to_s
 
         msg = Siwe::Message.new(
           domain:    domain,
-          address:   address,
+          address:   key.address.to_s,
           uri:       "https://#{domain}",
           chain_id:  chain_id,
           nonce:     nonce_resp[:nonce] || nonce_resp["nonce"],
-          statement: "Sign in to RAIL0"
+          statement: statement
         )
         message_str = msg.prepare_message
-
-        sig = personal_sign(key, message_str)
-        verify(message: message_str, signature: sig)
+        [message_str, personal_sign(key, message_str)]
       end
-
-      private
 
       def ensure_signing_deps!
         original_verbose = $VERBOSE

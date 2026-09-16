@@ -232,11 +232,36 @@ client.wallets.list(account_id, chain_id: 84532, active: true)
 # => { data: [ { id:, address:, label:, active:, tokens: [...] } ], meta: { page:, per_page:, total: } }
 
 client.wallets.get(account_id, id_or_address)
-client.wallets.create(account_id, address: "0x…", label: "Treasury")
 client.wallets.update(account_id, id_or_address, label: "Renamed", active: false)
 client.wallets.delete(account_id, id_or_address)                    # 204
 client.wallets.balances(account_id, id_or_address, chain_id: 84532) # live on-chain balances
 ```
+
+**Registering a wallet needs a SIWE proof-of-ownership of the address being
+added**, not merely the session JWT. `auth.prove_address` runs that handshake and
+returns the `message` + `signature` to splat into `create`. Sign with **the added
+wallet's own key**, not the session key: the gateway rejects a signature that does
+not recover to `address` (422), and an address already registered anywhere (409 —
+addresses are globally unique). This is what lets one account control several
+payee wallets.
+
+```ruby
+proof = client.auth.prove_address(private_key: added_wallet_key, domain: "api.rail0.xyz")
+client.wallets.create(account_id, address: "0x…", **proof, label: "Treasury")
+```
+
+The proof is **purpose-bound**, and a login proof will not do — the gateway pins
+each endpoint to one statement and refuses the other with 422
+`siwe_purpose_mismatch`:
+
+| Endpoint | Statement | Constant |
+|---|---|---|
+| `POST /auth` | `Sign in to RAIL0` | `Rail0::Resources::Auth::LOGIN_STATEMENT` |
+| `POST /accounts/:id/wallets` | `Add this wallet to your RAIL0 account` | `Rail0::Resources::Auth::WALLET_LINK_STATEMENT` |
+
+That is a security boundary rather than a label: a login signature is handed out
+on every sign-in, so a wallet-link endpoint that accepted one would let anyone
+holding a captured login proof bind that address to their **own** account.
 
 Which tokens a wallet accepts — this is what `payment_methods` then exposes to
 buyers, so it is the last step of merchant onboarding:
