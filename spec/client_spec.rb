@@ -128,6 +128,75 @@ RSpec.describe Rail0::Client do
     end
   end
 
+  # The gateway binds each endpoint to exactly one SIWE statement
+  # (Policy::SIWE_LOGIN_STATEMENT / SIWE_WALLET_LINK_STATEMENT) and answers the other
+  # with 422 siwe_purpose_mismatch. rail0-go shipped a ProveAddress that reused the
+  # login message verbatim, which broke `wallets create` outright and went unnoticed
+  # because no SDK test had ever asserted the statement. These pin both directions so
+  # the pair cannot converge again.
+  #
+  # The separation is a security property, not a label: a login signature is handed
+  # out on every sign-in, so a wallet-link endpoint that accepted one would let anyone
+  # holding a captured login proof bind that address to their own account.
+  describe "SIWE statements are purpose-bound" do
+    SIWE_TEST_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+    it "login signs the login statement and not the wallet-link one" do
+      stub_post("/auth/nonces", NONCE_RESPONSE, status: 201)
+      sent = nil
+      stub_request(:post, "#{BASE_URL}/auth")
+        .with do |req|
+          sent = JSON.parse(req.body)
+          true
+        end
+        .to_return(status: 201, body: SESSION_RESPONSE.to_json, headers: json_headers)
+
+      client.auth.login(private_key: SIWE_TEST_KEY, domain: "api.rail0.xyz")
+
+      expect(sent["message"]).to include(Rail0::Resources::Auth::LOGIN_STATEMENT)
+      expect(sent["message"]).not_to include(Rail0::Resources::Auth::WALLET_LINK_STATEMENT)
+    end
+
+    it "prove_address signs the wallet-link statement, and does not authenticate" do
+      nonce_stub = stub_post("/auth/nonces", NONCE_RESPONSE, status: 201)
+      auth_stub  = stub_request(:post, "#{BASE_URL}/auth")
+
+      proof = client.auth.prove_address(private_key: SIWE_TEST_KEY, domain: "api.rail0.xyz")
+
+      expect(proof[:message]).to include(Rail0::Resources::Auth::WALLET_LINK_STATEMENT)
+      expect(proof[:message]).not_to include(Rail0::Resources::Auth::LOGIN_STATEMENT)
+      expect(proof[:message]).to include("Nonce: tEsTn0nce42")
+      expect(proof[:signature]).to match(/\A0x[0-9a-f]{130}\z/i)
+
+      # Only the nonce endpoint is hit: proving an address must NOT authenticate the
+      # client. The wallet write is authorized by the caller's own session, which may
+      # be a different address entirely.
+      expect(nonce_stub).to have_been_requested
+      expect(auth_stub).not_to have_been_requested
+    end
+  end
+
+  describe "wallets.create" do
+    # The proof is not optional: before this the SDK sent {address, label} alone and
+    # every registration came back 422 from a gateway that requires it.
+    it "POSTs the address together with the SIWE proof" do
+      stub = stub_request(:post, "#{BASE_URL}/accounts/#{ACCOUNT_ID}/wallets")
+             .with(body: { address: PAYEE, message: "siwe-msg", signature: "0xdeadbeef",
+                           label: "Payouts" })
+             .to_return(status: 201, body: { id: WALLET_ID, address: PAYEE }.to_json,
+                        headers: json_headers)
+
+      client.wallets.create(ACCOUNT_ID, address: PAYEE, message: "siwe-msg",
+                                        signature: "0xdeadbeef", label: "Payouts")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "requires the proof" do
+      expect { client.wallets.create(ACCOUNT_ID, address: PAYEE) }.to raise_error(ArgumentError)
+    end
+  end
+
   describe "auth.revoke_all" do
     # The distinction that makes this endpoint worth having: logout ends ONE token, this
     # ends every session of the address — including the ones the caller has never seen,
@@ -240,11 +309,16 @@ RSpec.describe Rail0::Client do
       expect(client.wallets.get(ACCOUNT_ID, WALLET_ID)[:id]).to eq(WALLET_ID)
     end
 
-    it "create posts address and label" do
+    # This used to assert a body of {address, label} alone, which is what let the
+    # missing SIWE proof ship: the gateway requires message + signature and answered
+    # every such registration with 422, while the suite stayed green.
+    it "create posts address, label and the SIWE proof" do
       stub = stub_request(:post, "#{BASE_URL}#{base}")
-             .with(body: { address: PAYEE, label: "Merchant wallet" })
+             .with(body: { address: PAYEE, message: "siwe-msg", signature: "0xdeadbeef",
+                           label: "Merchant wallet" })
              .to_return(status: 201, body: WALLET.to_json, headers: json_headers)
-      client.wallets.create(ACCOUNT_ID, address: PAYEE, label: "Merchant wallet")
+      client.wallets.create(ACCOUNT_ID, address: PAYEE, message: "siwe-msg",
+                                        signature: "0xdeadbeef", label: "Merchant wallet")
       expect(stub).to have_been_requested
     end
 

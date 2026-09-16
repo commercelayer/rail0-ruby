@@ -47,12 +47,29 @@ module Rail0
       end
 
       # Add a wallet to the account.
+      #
+      # Requires a SIWE PROOF-OF-OWNERSHIP of the address being added, not merely
+      # the session JWT: the gateway verifies that +signature+ recovers to
+      # +address+ (422 otherwise), consumes the nonce carried in +message+, and
+      # enforces global address uniqueness (409 if registered anywhere). The proven
+      # address need not be the session address — a merchant may control several
+      # payee wallets.
+      #
+      # Obtain the pair from Auth#prove_address, which signs with the WALLET-LINK
+      # statement. A login proof is refused with 422 siwe_purpose_mismatch, so the
+      # message cannot simply be one taken from #login.
+      #
+      #   proof = client.auth.prove_address(private_key: added_key, domain: "api.rail0.xyz")
+      #   client.wallets.create(account_id, address: added, **proof, label: "Payouts")
+      #
       # @param account_id [String] Account UUID.
-      # @param address [String] EVM wallet address (0x, 42 chars).
+      # @param address [String] EVM wallet address (0x, 42 chars) — the address the proof is for.
+      # @param message [String] EIP-4361 SIWE message signed by +address+ (from Auth#prove_address).
+      # @param signature [String] Signature over +message+ (0x…), proving control of +address+.
       # @param label [String, nil] Human-readable label.
       # @return [Hash] id, address, label, active
-      def create(account_id, address:, label: nil)
-        body = { address: address }
+      def create(account_id, address:, message:, signature:, label: nil)
+        body = { address: address, message: message, signature: signature }
         body[:label] = label unless label.nil?
         http.post("/accounts/#{account_id}/wallets", body)
       end
