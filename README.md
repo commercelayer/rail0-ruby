@@ -212,6 +212,29 @@ client.tokens.list(chain_id: 84532, symbol: "USDC")
 client.health.get   # GET /health → { status:, api_version:, contract_version:, db:, … }
 ```
 
+## Pagination
+
+Paginated calls return `{ data:, meta: }`. `meta` is `{ page:, per_page:, total:, total_pages:, links: }`.
+
+`total_pages` is **zero** for an empty collection — "no pages" is what there are, so a pager rendered off it renders none. `links` comes from the `Link` header: `:first` and `:last` are always present, `:prev` and `:next` only where they exist, and the hash is empty when the collection is. The URIs are **relative** (path + query) and resolve against the URL you requested — the gateway emits them that way so they cannot advertise the wrong scheme through a TLS-terminating proxy.
+
+```ruby
+page = client.payments.list(per_page: 100)
+while page[:meta][:links][:next]
+  page = client.payments.list(page: page[:meta][:page] + 1, per_page: 100)
+end
+```
+
+### Idempotent prepares
+
+Every `*_prepare` takes an optional `idempotency_key:`. Without one, a retry that arrives after the first transaction was signed and broadcast opens a **second** one — right for a genuine sequential partial capture, wrong for a retry, and only the caller can tell those apart. Replaying a key returns the first transaction; the same key with different terms is refused `422 idempotency_key_reused`.
+
+```ruby
+client.payments.capture_prepare(rail0_id, "50.00", idempotency_key: order_id)
+```
+
+`get_transaction(id, transaction_id)` reads one of a payment's transactions — the lookup for an action id, so a caller holding one resolves it directly instead of listing and scanning.
+
 ## Payment methods (public discovery)
 
 Buyer-facing discovery of a merchant's accepted wallets/tokens — no JWT. Provide

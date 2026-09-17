@@ -295,7 +295,7 @@ RSpec.describe Rail0::Client do
       stub_list(base, [WALLET_WITH_TOKENS], total: 1, page: 1, per_page: 25)
       result = client.wallets.list(ACCOUNT_ID)
       expect(result[:data].first[:address]).to eq(PAYEE)
-      expect(result[:meta]).to eq(page: 1, per_page: 25, total: 1)
+      expect(result[:meta]).to eq(page: 1, per_page: 25, total: 1, total_pages: 0, links: {})
     end
 
     it "list forwards filters" do
