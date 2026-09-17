@@ -144,10 +144,29 @@ module Rail0
 
     def page_meta(response)
       {
-        page:     response["x-page"].to_i,
-        per_page: response["x-per-page"].to_i,
-        total:    response["x-total-count"].to_i
+        page:        response["x-page"].to_i,
+        per_page:    response["x-per-page"].to_i,
+        total:       response["x-total-count"].to_i,
+        # Zero for an empty collection: "no pages" is what there are, so a pager
+        # rendered off this renders none. (rail0-gateway#242)
+        total_pages: response["x-total-pages"].to_i,
+        links:       page_links(response["link"])
       }.freeze
+    end
+
+    # RFC 8288 Link into { first:, prev:, next:, last: }. `first`/`last` are always
+    # sent, `prev`/`next` only where they exist, and the header is ABSENT entirely on
+    # an empty collection — so an empty hash here means "no pages", not "unparsed".
+    #
+    # The URIs are RELATIVE (path + query) and resolve against the URL you requested:
+    # the gateway emits them that way so they cannot advertise the wrong scheme
+    # through a TLS-terminating proxy.
+    def page_links(raw)
+      return {}.freeze if raw.nil? || raw.empty?
+
+      raw.scan(/<([^>]+)>\s*;\s*rel="([^"]+)"/)
+         .each_with_object({}) { |(uri, rel), acc| acc[rel.to_sym] = uri }
+         .freeze
     end
 
     def perform(url)

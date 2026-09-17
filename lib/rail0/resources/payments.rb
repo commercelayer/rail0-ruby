@@ -98,6 +98,22 @@ module Rail0
         http.get_list("/payments/#{id}/transactions#{query}")
       end
 
+      # Fetch ONE of a payment's transactions
+      # (GET /payments/{id}/transactions/{transaction_id}).
+      #
+      # The lookup for an action id: anything handed a transaction id when an
+      # operation was accepted resolves it directly, instead of fetching the payment
+      # and scanning its transactions for an id it already holds. Readable by either
+      # participant; an unknown, malformed or foreign id all answer 404 alike.
+      # (rail0-gateway#330)
+      #
+      # @param id [String] Payment UUID or rail0_id.
+      # @param transaction_id [String] Transaction UUID.
+      # @return [Hash]
+      def get_transaction(id, transaction_id)
+        http.get("/payments/#{id}/transactions/#{transaction_id}")
+      end
+
       # Re-enqueue a stuck broadcast
       # (POST /payments/{id}/transactions/{transaction_id}/redrive).
       #
@@ -150,8 +166,16 @@ module Rail0
       # @param operation [String] One of {OPERATIONS}.
       # @param body [Hash, nil] Operation-specific fields.
       # @return [Hash]
-      def prepare(id, operation, body = nil)
-        http.post("/payments/#{id}/#{operation}/prepare", body)
+      # Pass +idempotency_key+ to make a repeat safe. Without one, a retry that
+      # arrives AFTER the first transaction was signed and broadcast opens a SECOND
+      # one — right for a genuine sequential partial capture, wrong for a retry, and
+      # nothing but the caller can tell those apart. Replaying a key returns the
+      # transaction the first call created (HTTP 200 rather than 201); the same key
+      # with different terms is refused 422 +idempotency_key_reused+. Scoped to this
+      # payment. (rail0-gateway#331)
+      def prepare(id, operation, body = nil, idempotency_key: nil)
+        http.post("/payments/#{id}/#{operation}/prepare", body,
+                  headers: idempotency_headers(idempotency_key))
       end
 
       # Broadcast a signed transaction for an operation (POST /payments/{id}/{op}); HTTP 202.
@@ -174,8 +198,8 @@ module Rail0
       end
 
       # Phase 1 — build the unsigned authorize() transaction (escrow hold).
-      def authorize_prepare(id)
-        prepare(id, "authorize")
+      def authorize_prepare(id, idempotency_key: nil)
+        prepare(id, "authorize", nil, idempotency_key: idempotency_key)
       end
 
       # Phase 2 — submit the signed authorize transaction.
@@ -184,8 +208,8 @@ module Rail0
       end
 
       # Phase 1 — build the unsigned charge() transaction (one-shot authorize+capture).
-      def charge_prepare(id)
-        prepare(id, "charge")
+      def charge_prepare(id, idempotency_key: nil)
+        prepare(id, "charge", nil, idempotency_key: idempotency_key)
       end
 
       # Phase 2 — submit the signed charge transaction.
@@ -194,8 +218,8 @@ module Rail0
       end
 
       # Phase 1 — build the unsigned capture() transaction. +amount+ is required.
-      def capture_prepare(id, amount)
-        prepare(id, "capture", { amount: amount })
+      def capture_prepare(id, amount, idempotency_key: nil)
+        prepare(id, "capture", { amount: amount }, idempotency_key: idempotency_key)
       end
 
       # Phase 2 — submit the signed capture transaction.
@@ -206,8 +230,8 @@ module Rail0
       # Phase 1 — build the unsigned void() transaction. Valid only while nothing
       # has been captured yet; after any capture the contract reverts AlreadyCaptured
       # (use {release_prepare} to return the uncaptured remainder instead).
-      def void_prepare(id)
-        prepare(id, "void")
+      def void_prepare(id, idempotency_key: nil)
+        prepare(id, "void", nil, idempotency_key: idempotency_key)
       end
 
       # Phase 2 — submit the signed void transaction.
@@ -218,8 +242,8 @@ module Rail0
       # Phase 1 — build the unsigned release() transaction. +from+ overrides the
       # submitter address (defaults to the payer). Returns uncaptured escrow to the
       # payer.
-      def release_prepare(id, from: nil)
-        prepare(id, "release", from ? { from: from } : {})
+      def release_prepare(id, from: nil, idempotency_key: nil)
+        prepare(id, "release", from ? { from: from } : {}, idempotency_key: idempotency_key)
       end
 
       # Phase 2 — submit the signed release transaction.
@@ -234,10 +258,10 @@ module Rail0
       # @param amount [String] Amount to refund, as a human decimal (e.g. "20.00").
       # @param signature [String, nil] Payee's EIP-3009 signature (0x…), phase 2 only.
       # @return [Hash]
-      def refund_prepare(id, amount:, signature: nil)
+      def refund_prepare(id, amount:, signature: nil, idempotency_key: nil)
         body = { amount: amount }
         body[:signature] = signature unless signature.nil?
-        prepare(id, "refund", body)
+        prepare(id, "refund", body, idempotency_key: idempotency_key)
       end
 
       # Phase 2 — submit the signed refund transaction.
@@ -249,8 +273,8 @@ module Rail0
       # @param id [String] Payment UUID or rail0_id.
       # @param reason [String, nil] Optional bytes32 code (0x…); defaults to zero server-side.
       # @return [Hash]
-      def dispute_prepare(id, reason: nil)
-        prepare_dispute("dispute/prepare", id, reason)
+      def dispute_prepare(id, reason: nil, idempotency_key: nil)
+        prepare_dispute("dispute/prepare", id, reason, idempotency_key: idempotency_key)
       end
 
       # Phase 2 — submit the signed dispute transaction (payer only).
@@ -265,8 +289,8 @@ module Rail0
       # @param id [String] Payment UUID or rail0_id.
       # @param reason [String, nil] Optional bytes32 code (0x…).
       # @return [Hash]
-      def close_dispute_prepare(id, reason: nil)
-        prepare_dispute("dispute/close/prepare", id, reason)
+      def close_dispute_prepare(id, reason: nil, idempotency_key: nil)
+        prepare_dispute("dispute/close/prepare", id, reason, idempotency_key: idempotency_key)
       end
 
       # Phase 2 — submit the signed close-dispute transaction (payer only).
@@ -305,9 +329,15 @@ module Rail0
 
       private
 
-      def prepare_dispute(path, id, reason)
+      def prepare_dispute(path, id, reason, idempotency_key: nil)
         body = reason ? { reason: reason } : {}
-        http.post("/payments/#{id}/#{path}", body)
+        http.post("/payments/#{id}/#{path}", body,
+                  headers: idempotency_headers(idempotency_key))
+      end
+
+      # {} when no key, so an un-keyed call sends exactly the headers it sent before.
+      def idempotency_headers(key)
+        key ? { "Idempotency-Key" => key } : {}
       end
     end
   end
