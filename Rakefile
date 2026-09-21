@@ -14,10 +14,19 @@ RuboCop::RakeTask.new(:rubocop)
 # act on, so a formatting slip does not wait behind the suite.
 task default: %i[rubocop spec]
 
-# `bundler/gem_tasks` above gives build / install / release. Release is gated on the
-# default task, so a publish cannot happen from a tree that rubocop or the suite would
-# reject -- the same rule rail0-ts follows with prepublishOnly, for the same reason: the
-# gate is worth nothing if the one operation that cannot be undone skips it.
+# `bundler/gem_tasks` above gives build / install / release, and the gate hangs off BUILD
+# rather than off release. That is the whole point, and it is not a style choice:
 #
-# Re-declaring the task ADDS a prerequisite rather than replacing bundler's own.
-task release: :default
+# Rake runs prerequisites in declaration order, and re-declaring a task APPENDS to that
+# list. `task release: :default` therefore put the gate LAST -- after
+# release:rubygem_push -- so rubocop and the suite ran once the gem was already on
+# rubygems.org. It read like a gate and gated nothing.
+#
+# `build` is release's FIRST prerequisite, so gating build puts rubocop + spec ahead of
+# guard_clean, ahead of the tag push and ahead of the gem push. Rake runs a task once, so
+# nothing repeats. `rake install` inherits it too, which is right: packaging a gem the
+# suite has not seen is the thing worth refusing.
+#
+# Verify with `rake -P`: `default` must appear under `rake build`, not at the end of
+# `rake release`.
+task build: :default
