@@ -21,15 +21,29 @@ they are needed only when you call `client.auth.login` or `Rail0::Signing`.
 
 ## Installation
 
-Add to your Gemfile:
+```bash
+gem install rail0-sdk
+```
+
+Or, in a Gemfile:
 
 ```ruby
-gem "rail0"
+gem "rail0-sdk"
 
 # Only if you use SIWE login or off-chain signing:
 gem "eth",     "~> 0.5"
 gem "siwe-rb", "~> 0.2"
 ```
+
+The gem is **`rail0-sdk`**; the require path is **`rail0`**:
+
+```ruby
+require "rail0"   # canonical
+require "rail0-sdk" # also works, for whoever reaches for the installed name
+```
+
+RubyGems has one global namespace and no scopes, so the gem is the SDK's name rather than
+the protocol's — while `Rail0` stays the module every caller already uses.
 
 ## Quick start
 

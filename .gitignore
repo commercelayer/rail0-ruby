@@ -3,3 +3,6 @@ vendor/
 Gemfile.lock
 .rspec_status
 TICKET.md
+
+# Built gems: publish artifacts, never tracked.
+*.gem

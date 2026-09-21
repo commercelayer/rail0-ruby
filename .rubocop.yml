@@ -62,6 +62,15 @@ Metrics/BlockLength:
     - "spec/**/*"
     - "*.gemspec"
 
+# The gem is "rail0-sdk", and Bundler requires a gem by its own name — so the entry point
+# HAS to be lib/rail0-sdk.rb, dash included. The cop is right about Ruby files in general and
+# wrong about this one by construction: renaming it to snake_case would make
+# `gem "rail0-sdk"` raise LoadError under Bundler.require. One file, named here rather than
+# disabled inline, so the exception is visible in the config a reader consults.
+Naming/FileName:
+  Exclude:
+    - "lib/rail0-sdk.rb"
+
 # Chain ids and amounts are written the way they appear on chain and in the gateway's seeds —
 # 84532, not 84_532 — so a value can be grepped across repos.
 Style/NumericLiterals:
