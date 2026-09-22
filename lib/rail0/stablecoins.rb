@@ -78,13 +78,50 @@ module Rail0
           "cUSD" => StablecoinInfo.new(address: "0x765DE816845861e75A25fCA122bb6898B8B1282a", decimals: 18, eip3009: true, eip2612: false),
           "cEUR" => StablecoinInfo.new(address: "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73", decimals: 18, eip3009: true, eip2612: false)
         }
+      ),
+      # ── Testnets ───────────────────────────────────────────────────────────
+      # Every address below was read off its own chain, and the token lists are
+      # the immutable acceptedTokens() allowlists of the RAIL0 deployments there
+      # — which is what a payment on that chain can actually use.
+      "arc-testnet" => ChainStablecoins.new(
+        chain_id: 5042002,
+        tokens: {
+          "USDC" => StablecoinInfo.new(address: "0x3600000000000000000000000000000000000000", decimals: 6, eip3009: true, eip2612: true),
+          "EURC" => StablecoinInfo.new(address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a", decimals: 6, eip3009: true, eip2612: true)
+        }
+      ),
+      # Celo Sepolia is 11142220. The rail0-go registry carried 44787 here, which is
+      # ALFAJORES — a different, now-retired network — alongside a USDC address with
+      # no code on this chain. Corrected there in the same change; do not "restore" it.
+      "celo-sepolia" => ChainStablecoins.new(
+        chain_id: 11142220,
+        tokens: {
+          "USDC" => StablecoinInfo.new(address: "0x01C5C0122039549AD1493B8220cABEdD739BC44E", decimals: 6, eip3009: true, eip2612: true),
+          "USD₮" => StablecoinInfo.new(address: "0xd077A400968890Eacc75cdc901F0356c943e4fDb", decimals: 6, eip3009: true, eip2612: true)
+        }
+      ),
+      # PYUSD is the first non-Circle token served, and the reason this chain is
+      # served at all — it is issued nowhere else.
+      #
+      # Signing against PYUSD directly: its EIP-712 domain name is "PayPal USD", not
+      # the symbol, and its version is "1", which version() does not expose (it
+      # reverts). Through a RAIL0 payment this never bites — the domain comes down in
+      # the gateway's signing_payload — but building the domain by hand from the
+      # symbol yields a signature the token rejects.
+      "ethereum-sepolia" => ChainStablecoins.new(
+        chain_id: 11155111,
+        tokens: {
+          "USDC"  => StablecoinInfo.new(address: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", decimals: 6, eip3009: true, eip2612: true),
+          "PYUSD" => StablecoinInfo.new(address: "0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9", decimals: 6, eip3009: true, eip2612: true)
+        }
       )
     }.freeze
 
     # Returns the registry entry for a chain, or +nil+ if the chain is unknown.
     #
     # Supported chain names: "ethereum", "base", "polygon", "arbitrumOne",
-    # "optimism", "avalanche", "celo".
+    # "optimism", "avalanche", "celo", "arc-testnet", "celo-sepolia",
+    # "ethereum-sepolia".
     #
     # @param chain [String]
     # @return [ChainStablecoins, nil]
