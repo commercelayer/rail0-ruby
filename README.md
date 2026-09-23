@@ -214,7 +214,7 @@ cannot.
 ## Catalog (public)
 
 ```ruby
-client.chains.list                                    # GET /blockchains
+client.chains.list                                    # GET /blockchains (each chain's :contract is the active RAIL0 deployment)
 client.chains.list(network_type: "testnet", symbol: "ETH")
 client.tokens.list                                    # GET /tokens
 client.tokens.list(chain_id: 84532, symbol: "USDC")

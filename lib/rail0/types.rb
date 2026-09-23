@@ -46,36 +46,43 @@ module Rail0
       keyword_init: true
     )
 
-    # Error envelope. Every error this API returns carries `code` (stable and machine-readable — the
-    # only field to branch on), `title` (a short label) and `detail` (one or two sentences fit to show a
-    # user verbatim). The wording comes from the gateway's error catalogue, so the same condition always
-    # reads the same way wherever it surfaces. `status` and `message` are the pre-code/title/detail
-    # names, derived from the same entry and kept for existing clients: `status` carries the family a
-    # client used to switch on (e.g. `forbidden`, `invalid_state`) where `code` is narrower, and
-    # `message` equals `detail`. Context fields may also be present (`resource`, `param`, `chain_id`,
-    # `token`, `payee`, `errors`).
+    # The error envelope: exactly code (stable, the only field to branch on), title (short label) and
+    # detail (a sentence a UI can print verbatim). The legacy status/message/error aliases were removed
+    # in #252.
     ApiErrorBody = Struct.new(
-      :code,     # String
-      :title,    # String
-      :detail,   # String
-      :status,   # String — Legacy: the error family, or the code itself when there is no wider family.
-      :message,  # String — Legacy alias of `detail`.
+      :code,    # String
+      :title,   # String
+      :detail,  # String
       keyword_init: true
     )
 
-    # Gateway liveness/readiness. Only the database gates the HTTP code (200 healthy, 503 when the DB is
-    # unreachable); Sidekiq is reported but never flips the code, since the API still serves synchronous
-    # requests when workers are down. `status` is the global signal: `ok` (all good), `degraded` (DB ok
-    # but Sidekiq not ok), `error` (DB down — the only 503).
+    # Gateway liveness/readiness — public and token-blind: one body for every caller, and every field is
+    # public by nature (the versions are on-chain / on the root descriptor; the counts are derivable
+    # from the public catalog reads). Only the database gates the HTTP code (200 healthy, 503 when the
+    # DB is unreachable); the Sidekiq worker fleet never flips the code, since the API still serves
+    # synchronous requests when workers are down. `status` is the global signal: `ok` (all good),
+    # `degraded` (DB ok but the worker fleet not ok), `error` (DB down — the only 503). The fleet
+    # FIGURES (queue depth, worker count, Redis reachability) are operational internals and live on the
+    # operator-only GET /admin/health.
     Health = Struct.new(
       :status,            # String
+      :db,                # String
+      :timestamp,         # String
       :api_version,       # String
       :contract_version,  # String
-      :db,                # String
-      :sidekiq,           # Hash — Worker fleet health (does not gate liveness).
       :active_chains,     # Integer
       :active_contracts,  # Integer
-      :timestamp,         # String
+      keyword_init: true
+    )
+
+    # Operator diagnostics for GET /admin/health: one verdict plus a named check per standing failure
+    # condition, always 200 (a degraded system is the content, not an error — this is not a liveness
+    # probe). Every figure is computed on request from state the gateway already keeps; nothing here is
+    # a counter anyone increments.
+    AdminHealth = Struct.new(
+      :status,     # String — The worst of the checks. Exists so "is anything wrong" can be read without knowing which checks there are, nor which will be added later.
+      :checks,     # Hash
+      :timestamp,  # String
       keyword_init: true
     )
 
@@ -89,7 +96,9 @@ module Rail0
     # Issued after a successful SIWE verification. SIWE alone proves control of the address, so a token
     # is issued even when the address is not registered to any account; in that case `account_id` and
     # `name` are null (an account-less session, e.g. a buyer). Clients that require an account must
-    # treat a null `account_id` as not-allowed.
+    # treat a null `account_id` as not-allowed. A session whose account holds the operator grant
+    # additionally carries `admin: true` (the Session::Admin variant); a standard or account-less
+    # session has no admin/role field at all.
     Session = Struct.new(
       :token,       # String — JWT bearer token.
       :address,     # String — Resolved wallet address.
@@ -99,20 +108,31 @@ module Rail0
       keyword_init: true
     )
 
+    # The RAIL0 deployment a NEW payment on this chain is opened against — what escrows the payer's
+    # funds, and which version of it. Nothing here is a disclosure: the address is on-chain, every
+    # payment response already carries it as `rail0_contract`, and the explorer shows its verified
+    # source. It is published so a client does not carry its own address-per-chain table and go quietly
+    # stale on the next rollout. Null only for a chain with no deployment, which cannot appear in this
+    # listing anyway. The operator's bookkeeping (start_block, active/archived) stays on
+    # /admin/contracts: it describes how this gateway and its indexer are run, not what a payer is
+    # signing into.
+    ChainContract = Struct.new(
+      :address,      # String
+      :version,      # String — Semver of the deployed contract. Every active deployment agrees on the one the gateway targets.
+      :deployed_at,  # String
+      keyword_init: true
+    )
+
     # Public blockchain view.
-    #
-    # required_confirmations and finality_tag together say how long a payer waits. Read
-    # the PAIR, not the number: where a chain serves a finality tag the gateway gates on
-    # that tag, and the count is the fallback for chains serving none — so quoting the
-    # count on a tagged chain names a wait nobody applies.
     Blockchain = Struct.new(
-      :chain_id,               # Integer
-      :name,                   # String
-      :native_symbol,          # String
-      :network_type,           # String
-      :explorer_url,           # String
-      :required_confirmations, # Integer
-      :finality_tag,           # String, nil where the chain serves no tag
+      :chain_id,                # Integer
+      :name,                    # String
+      :native_symbol,           # String
+      :network_type,            # String
+      :explorer_url,            # String
+      :required_confirmations,  # Integer — Confirmations this gateway waits for before treating a transaction as settled. The FALLBACK rule: where the chain serves a finality tag (see finality_tag) that tag governs instead, so a client showing this number on such a chain is describing a rule that is not in force.
+      :finality_tag,            # String — The block tag the chain calls settled (`safe`, `finalized`), when it serves one — and what the gateway actually gates on. Null where the chain serves none, in which case required_confirmations is counted.
+      :contract,                # ChainContract
       keyword_init: true
     )
 
@@ -150,9 +170,10 @@ module Rail0
     # A wallet's token holding as nested under its wallet (GET /accounts/:id/wallets): the token plus
     # this wallet's per-token flags, without re-nesting the wallet.
     WalletTokenHolding = Struct.new(
-      :token,    # Token
-      :active,   # Boolean
-      :default,  # Boolean
+      :token_id,  # String — The token's UUID — the handle for PATCH/DELETE /accounts/{account_id}/wallets/{id}/tokens/{token_id}.
+      :token,     # Token
+      :active,    # Boolean
+      :default,   # Boolean
       keyword_init: true
     )
 
@@ -167,28 +188,25 @@ module Rail0
       keyword_init: true
     )
 
-    # Base persisted payment fields.
+    # Base persisted payment fields, plus the `chain_id` of the payment's deployment.
     Payment = Struct.new(
       :id,                    # String
       :contract_id,           # String
-      :chain_id,              # Integer — EVM chain id of the deployment. On list rows too: `amount` is
-      #                         base units, and the token's decimals resolve from `token` PLUS its chain.
+      :chain_id,              # Integer — EVM chain id of the payment's deployment. Present on the list view too: `amount` is in base units, and the token's `decimals` can only be resolved from `token` together with its chain.
       :rail0_id,              # String — Protocol-level identifier (66-char hex).
-      :status,                # String
+      :status,                # String — Lifecycle state. Deliberately a HAPPY-PATH label, not a ledger: a partial operation does NOT move it, so a payment captured 100 and refunded 40 still reads `captured`, and a full refund that leaves uncaptured escrow does too. `capturable_amount` / `refundable_amount` are the authoritative residuals — reconcile on those, not on this. `partially_refunded` is retained for historical rows only and is no longer produced.
       :mode,                  # String
       :amount,                # String
       :capturable_amount,     # String — Mirrors on-chain capturableAmount (escrow still held); base units.
       :refundable_amount,     # String — Mirrors on-chain refundableAmount (held by payee, still refundable); base units.
-      # The window after a PARTIAL capture where neither void nor release can return the
-      # buyer's remaining escrow — the answer to "why did both just refuse?".
-      :escrow_stranded,       # Boolean
-      :escrow_returnable_at,  # String, nil — ISO-8601 end of that window; nil outside it.
       :config_hash,           # String
       :payer,                 # String
       :payee,                 # String
       :token,                 # String
       :authorization_expiry,  # Integer
       :refund_expiry,         # Integer
+      :escrow_stranded,       # Boolean — True exactly inside the stranded-escrow window (#233): a partial capture has permanently ruled void out, and release only opens at authorization_expiry — so no verb can return the buyer's uncaptured escrow until then. Mirrors RAIL0.sol; the gateway names the window, it cannot shorten it.
+      :escrow_returnable_at,  # String — When the stranded escrow becomes returnable (release opens) — the authorization expiry as ISO-8601. Null whenever nothing is stranded, so presence alone is the signal.
       :disputed,              # Boolean — True while an open dispute exists.
       :last_error_code,       # Decoded reason of the last failed on-chain attempt; null once the payment makes forward progress. Non-null means the latest attempt failed.
       :last_error_message,    # Human-readable form of last_error_code.
@@ -218,15 +236,16 @@ module Rail0
     Transaction = Struct.new(
       :id,                    # String
       :payment_id,            # String
-      :operation,             # String
+      :operation,             # String — Which on-chain call this row attempts. A SUPERSET of the `{operation}` path enum: `dispute` and `close_dispute` have their own hand-written routes rather than living under the generic namespace, but they mint transaction rows like any other operation, so a generated client must be able to represent them.
       :status,                # String
+      :redrivable,            # Boolean — True when this transaction's broadcast can be re-enqueued: it is `pending` and the gateway holds its signed transaction, i.e. a send that was prepared and signed but never reached the chain. The same predicate `POST /payments/{id}/transactions/{transaction_id}/redrive` guards on, so a client can offer the action exactly when it will succeed instead of on a 422. False on a `pending` row that holds no signed transaction - there the next step is submitting the signature, not a redrive.
       :error_code,            # Decoded failure code, null unless `status` is "failed". Same catalogue as an error body's `code`: a RAIL0 custom error (`not_payee`), a token-level revert (`insufficient_token_balance`, `invalid_token_signature`, `authorization_already_used`), a Solidity panic, or a rejection that stopped the broadcast before the chain saw it (`insufficient_gas_funds`, `nonce_too_low`).
       :error_title,           # String — Short label for `error_code`; null unless failed.
       :error_detail,          # String — Sentence explaining the failure; null unless failed. Carries the chain's own words when the revert was not one the gateway recognises.
-      :error_message,         # Legacy alias of `error_detail`.
       :unsigned_transaction,
       :transaction_hash,
-      :amount,
+      :sender,                # The address that SIGNED the submitted transaction, recovered from the signature by the gateway at submit — a fact, not a client claim. Null where the gateway held no signature to recover from (a report-by-hash submit, where the wallet broadcast it itself) or where nothing has been submitted yet. This is what makes `release` gas attributable: that operation is payer-OR-payee, so whose cost it is depends on who signed.
+      :amount,                # Amount in token BASE units. On capture and refund it is the amount the caller asked for. On void and release it is PROVISIONAL — those operations carry no amount and move the whole uncaptured escrow, so this is the capturable residual as of prepare, re-sealed with the exact on-chain amount when the indexer confirms.
       :block_number,
       :gas_used,              # Gas units used, mirrored from the indexer on confirm.
       :gas_limit,             # Gas limit, mirrored from the indexer on confirm.
@@ -241,11 +260,41 @@ module Rail0
       keyword_init: true
     )
 
+    # Full RAIL0 deployment row (admin surfaces only). Read alongside AdminBlockchain: a chain with no
+    # row here cannot take a payment, which is what keeps it out of service.
+    AdminContract = Struct.new(
+      :id,             # String
+      :blockchain_id,  # String
+      :address,        # String
+      :version,        # String — Semver, and every ACTIVE deployment must agree on the one the code targets.
+      :deployed_at,    # String
+      :start_block,    # Where the indexer starts. Null means the deployment block.
+      :active,         # Boolean — The single deployment new payments are opened against, at most one per chain.
+      :archived,       # Boolean — Always false here: the listing excludes archived deployments.
+      :archived_at,
+      :created_at,     # String
+      :updated_at,     # String
+      keyword_init: true
+    )
+
+    # The account's own profile as the holder reads it (GET) and as a PATCH returns it — id, name,
+    # email, timestamps. Deliberately no admin/role field: the operator grant lives in a separate table,
+    # so a standard account's profile carries no trace of that axis. An ADMIN reading any account gets
+    # the whole record plus `admin` instead, which is a different shape and not this one.
+    Account = Struct.new(
+      :id,          # String
+      :name,        # String
+      :email,
+      :created_at,  # String
+      :updated_at,  # String
+      keyword_init: true
+    )
+
     Webhook = Struct.new(
       :id,                     # String
       :name,                   # String
       :callback_url,           # String
-      :topics,                 # Array<WebhookTopic> — every event this subscription delivers
+      :topics,                 # Array — Every event this subscription delivers. The delivery itself names the one that fired, in X-Rail0-Topic.
       :active,                 # Boolean
       :circuit_state,          # String
       :circuit_failure_count,  # Integer
@@ -272,7 +321,7 @@ module Rail0
     # Sweeper view of a stale submitted transaction.
     SyncTransaction = Struct.new(
       :transaction_hash,  # String
-      :operation,         # String
+      :operation,         # String — Same vocabulary as `Transaction.operation` — dispute rows go stale too.
       :payment_id,        # String — Protocol-level rail0_id.
       :chain_id,          # Integer
       keyword_init: true
@@ -283,8 +332,7 @@ module Rail0
       :chain_id,                # Integer
       :start_block,             # Integer
       :required_confirmations,  # Integer — Fallback burial depth, used where the chain serves no finality tag.
-      :finality_tag,            # String — Which block the chain calls settled ("safe", "finalized" or
-      #                           "depth"); the indexer gates every notify on it.
+      :finality_tag,            # String — Which block the chain calls settled; the indexer gates every notify on it.
       :explorer_url,            # Block explorer base URL; null when the chain has none.
       :network_type,            # String — "testnet" or "mainnet"; selects which chains a deployment indexes.
       :rpc_urls,                # Array — Ordered list of public RPC endpoints tried in turn (serial fallback).
