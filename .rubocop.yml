@@ -52,6 +52,9 @@ Metrics/ModuleLength:
   Max: 250
   Exclude:
     - "spec/**/*"
+    # Generated from the gateway schema, one Struct per schema: its length is the API's
+    # size, and it grows with every endpoint rather than with any choice made here.
+    - "lib/rail0/types.rb"
 
 # An rspec `describe` is a block, and a long one is a well-covered subject rather than a
 # smell. Same for the gemspec. 30 is for the HTTP retry loop: one `loop do` that owns attempt
