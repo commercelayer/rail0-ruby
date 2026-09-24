@@ -210,13 +210,43 @@ RSpec.describe Rail0::Client do
     # The distinction that makes this endpoint worth having: logout ends ONE token, this
     # ends every session of the address — including the ones the caller has never seen,
     # which is the whole case for a leaked key.
-    it "POSTs /auth/revoke_all and returns the cutoff" do
-      stub = stub_post("/auth/revoke_all", { revoked: true, cutoff: "2026-08-27T21:00:00Z" })
-      result = client.auth.revoke_all
-      expect(stub).to have_been_requested
-      expect(result[:revoked]).to be(true)
+    #
+    # What a wrong implementation looks like is exactly what this used to be: an empty
+    # body (refused by the gateway on every call) and `revoked`/`cutoff` keys the gateway
+    # never sends. So this pins the proof's purpose AND the response shape.
+    it "POSTs a revoke-all SIWE proof and returns revoked_all and cutoff_at" do
+      nonce_stub = stub_post("/auth/nonces", NONCE_RESPONSE, status: 201)
+      sent = nil
+      revoke_stub = stub_request(:post, "#{BASE_URL}/auth/revoke_all")
+                    .with do |req|
+                      sent = JSON.parse(req.body)
+                      true
+                    end
+                    .to_return(status: 200, body: { revoked_all: true, cutoff_at: 1_788_210_001 }.to_json,
+                               headers: json_headers)
+
+      result = client.auth.revoke_all(private_key: SIWE_TEST_KEY, domain: "api.rail0.xyz")
+
+      expect(nonce_stub).to have_been_requested
+      expect(revoke_stub).to have_been_requested
+      expect(sent.keys).to contain_exactly("message", "signature")
+      expect(sent["message"]).to include(Rail0::Resources::Auth::REVOKE_ALL_STATEMENT)
+      expect(sent["message"]).not_to include(Rail0::Resources::Auth::LOGIN_STATEMENT)
+      expect(sent["message"]).to include("Nonce: tEsTn0nce42")
+      expect(sent["signature"]).to match(/\A0x[0-9a-f]{130}\z/i)
+
       # The cutoff, not just the boolean: it says exactly which sessions died.
-      expect(result[:cutoff]).to eq("2026-08-27T21:00:00Z")
+      expect(result).to eq(revoked_all: true, cutoff_at: 1_788_210_001)
+    end
+
+    it "uses the gateway's exact revoke-all statement" do
+      # Must match rail0-gateway Policy::SIWE_REVOKE_ALL_STATEMENT byte for byte; the
+      # gateway compares it exactly and answers anything else with 422.
+      expect(Rail0::Resources::Auth::REVOKE_ALL_STATEMENT).to eq("Sign out of RAIL0 everywhere")
+    end
+
+    it "requires the key and domain for the proof" do
+      expect { client.auth.revoke_all }.to raise_error(ArgumentError)
     end
   end
 

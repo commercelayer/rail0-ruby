@@ -31,6 +31,13 @@ module Rail0
       # account. Never collapse the two into a single constant.
       WALLET_LINK_STATEMENT = "Add this wallet to your RAIL0 account"
 
+      # The SIWE statement for revoking every session of an address —
+      # POST /auth/revoke_all. The gateway asserts it exactly
+      # (Policy::SIWE_REVOKE_ALL_STATEMENT) for the reason the other two are
+      # separate: a proof is spendable at exactly one endpoint, so a captured login
+      # signature cannot be replayed to sign its address out everywhere.
+      REVOKE_ALL_STATEMENT = "Sign out of RAIL0 everywhere"
+
       attr_reader :http
 
       def initialize(http)
@@ -76,23 +83,43 @@ module Rail0
         http.post("/auth/logout", {})
       end
 
-      # End EVERY session of the calling address (POST /auth/revoke_all).
+      # End EVERY session of the address controlled by +private_key+
+      # (POST /auth/revoke_all).
       #
       # The answer to a key you no longer trust, and {#logout} cannot be that answer: it
       # is per TOKEN, so an address with five live sessions needs five tokens the caller
       # does not have. This is per ADDRESS and reaches the ones it never saw — including
       # any an attacker is holding.
       #
+      # Authorized by a FRESH SIWE PROOF of the address, not by the session: someone
+      # reacting to a leaked key holds the wallet, not the stolen token, so requiring the
+      # session would make this useless exactly when it is needed. The proof is the same
+      # handshake as {#login} — fetch a single-use nonce, build an EIP-4361 message, sign
+      # it with EIP-191 personal_sign — but carries {REVOKE_ALL_STATEMENT}, so a login
+      # proof cannot be replayed here (the gateway answers 422 siwe_purpose_mismatch).
+      # This method used to post an empty body, which the gateway refused on every call,
+      # and read `revoked`/`cutoff`, which the gateway never sends.
+      #
       # The gateway records a cutoff INSTANT rather than enumerating tokens, so a session
-      # minted a moment before the call is refused by its own `iat`. That is what makes it
-      # durable where a denylist is not: there is nothing to enumerate and nothing to miss.
+      # minted a moment before the call is refused by its own `iat`. It is self-revoking:
+      # the cutoff is just after now, so any token this caller holds dies with the rest —
+      # sign in again afterwards. (The client does not store the JWT, so there is nothing
+      # local to clear; drop your own copy.)
       #
-      # `cutoff` is the field worth logging. It says exactly which sessions died, which
-      # `revoked: true` cannot.
+      # `cutoff_at` is the field worth logging. It says exactly which sessions died, which
+      # `revoked_all: true` cannot.
       #
-      # @return [Hash] { revoked: true|false, cutoff: "2026-08-27T21:00:00Z" }
-      def revoke_all
-        http.post("/auth/revoke_all", {})
+      # Requires the optional 'eth' and 'siwe-rb' gems.
+      #
+      # @param private_key [String] 0x-prefixed hex private key of the address to sign out.
+      # @param domain      [String] Host of the API server (e.g. "api.rail0.xyz").
+      # @param chain_id    [Integer] Chain ID to embed; same meaning and default as #login.
+      # @return [Hash] { revoked_all: true, cutoff_at: 1788210001 } — cutoff_at is epoch
+      #   seconds; every token of the address with an earlier `iat` is refused.
+      def revoke_all(private_key:, domain:, chain_id: 1)
+        message, signature = sign_proof(private_key, domain, chain_id, REVOKE_ALL_STATEMENT)
+        result = http.post("/auth/revoke_all", { message: message, signature: signature })
+        { revoked_all: result[:revoked_all], cutoff_at: result[:cutoff_at] }
       end
 
       # Perform the full SIWE authentication flow:
@@ -141,9 +168,9 @@ module Rail0
 
       private
 
-      # The shared core of both handshakes. Everything but the STATEMENT is
-      # identical, which is precisely why the statement is a parameter and never a
-      # default — see the note on the two constants.
+      # The shared core of every SIWE handshake (login, prove_address, revoke_all).
+      # Everything but the STATEMENT is identical, which is precisely why the
+      # statement is a parameter and never a default — see the note on the constants.
       def sign_proof(private_key, domain, chain_id, statement)
         ensure_signing_deps!
 
