@@ -135,8 +135,10 @@ module Rail0
 
       # Stop accepting a token on this wallet (soft delete). Returns HTTP 204.
       #
-      # `token_id` is the id of the HOLDING as returned by {add_token} / {list}'s
-      # nested `tokens`, not the token's contract address.
+      # `token_id` is the TOKEN's UUID — the `token_id` field on a holding returned
+      # by {add_token} / {list}'s nested `tokens` — not an id of the holding row and
+      # not the token's contract address. The gateway looks the holding up by
+      # (wallet, token_id); the same applies to {enable_token} and {disable_token}.
       #
       # @return [nil]
       def remove_token(account_id, id_or_address, token_id)

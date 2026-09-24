@@ -197,7 +197,7 @@ Lower-level building blocks are also available:
 nonce   = client.auth.nonce                                  # POST /auth/nonces
 session = client.auth.verify(message: siwe_msg, signature: sig)  # POST /auth — same hash as login
 client.auth.logout                                           # POST /auth/logout
-client.auth.revoke_all                                       # POST /auth/revoke_all
+client.auth.revoke_all(private_key: "0x...", domain: "api.rail0.xyz")  # POST /auth/revoke_all
 ```
 
 `logout` revokes **the token this client carries**, not every session for the address —
@@ -211,9 +211,16 @@ live sessions would need five tokens you do not have. This is per **address** an
 the ones you never saw — including any an attacker is holding — which makes it the call
 for a key you no longer trust. The gateway records a cutoff **instant** rather than
 enumerating tokens, so a session minted a moment before the call is refused by its own
-`iat`; that is what makes it durable where a denylist is not. The returned `cutoff` is
-the field worth logging: it says exactly which sessions died, which `revoked: true`
-cannot.
+`iat`; that is what makes it durable where a denylist is not.
+
+It is authorized by a **fresh SIWE proof** of the address, not by the session — whoever
+is reacting to a leaked key holds the wallet, not the stolen token — so it takes the
+private key and domain (and optional `chain_id:`, default 1) exactly like `login`, and
+needs the same optional `eth`/`siwe-rb` gems. The proof carries its own statement
+(`"Sign out of RAIL0 everywhere"`), so a login signature cannot be replayed here. It is
+self-revoking: any token you hold dies too, so sign in again afterwards. It returns
+`{ revoked_all: true, cutoff_at: "<ISO-8601>" }`; `cutoff_at` is the field worth
+logging — it says exactly which sessions died, which `revoked_all: true` cannot.
 
 ## Catalog (public)
 
