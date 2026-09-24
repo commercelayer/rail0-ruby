@@ -765,6 +765,26 @@ uses them everywhere, table-aligned hashes because some literals are tables, and
 (`retry_on_429`, `eip712`, `secp256k1`) that each spell themselves their own way. A linter
 that argues with the codebase teaches people to ignore it.
 
+## Publishing
+
+Releases publish from GitHub Actions (`.github/workflows/release.yml`) through RubyGems
+**Trusted Publishing**: RubyGems.org trusts that workflow in this repo, so there is no API
+key to store or rotate and no OTP prompt.
+
+1. Merge a PR that bumps `Rail0::VERSION` in `lib/rail0/version.rb`.
+2. Publish a GitHub release on `main` tagged `v<version>` (e.g. `v1.2.0`).
+
+The workflow checks the tag against `Rail0::VERSION`, runs `rake build` (rubocop and the
+specs first, then the gem) and pushes it. A version already on RubyGems.org is skipped, so
+a re-run (Actions → release → Run workflow, from `main`, with the tag as input) is always
+safe — that is also how a release cut before the workflow existed gets published.
+
+One-time setup, by an owner of the gem on rubygems.org: rail0-sdk → Trusted publishers →
+GitHub Actions, repository `commercelayer/rail0-ruby`, workflow `release.yml`.
+
+Publishing by hand still works as a fallback (`gem build rail0-sdk.gemspec && gem push
+rail0-sdk-<version>.gem`, with the OTP the gem's `rubygems_mfa_required` asks for).
+
 ## License
 
 [MIT](LICENSE)
