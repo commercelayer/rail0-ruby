@@ -15,7 +15,8 @@ lifecycle plus account, wallet, catalog, and webhook management. It mirrors the
 - Ruby ≥ 3.0
 - For SIWE login and off-chain signing: `eth` (`~> 0.5`) and `siwe-rb` (`~> 0.2`)
 
-The core HTTP client has **no runtime dependencies** (Ruby stdlib only). The `eth`
+The core HTTP client needs only the Ruby stdlib plus the `logger` gem (a declared
+dependency, since it is no longer a default gem from Ruby 4.0). The `eth`
 and `siwe-rb` gems are loaded lazily — `require "rail0"` works without them, and
 they are needed only when you call `client.auth.login` or `Rail0::Signing`.
 
@@ -168,7 +169,9 @@ path segments and does not fit the generic shape.
 ```ruby
 auth = client.auth.login(private_key: "0x…", domain: "api.rail0.xyz")
 # => { token:, address:, account_id:, name:, expires_at:, admin: }
-# admin is true only for an account holding the operator grant (visibility only)
+# admin is always a boolean (verify too): true only for an account holding the
+# operator grant, false otherwise (visibility only). account_id/name are nil for an
+# account-less session.
 # login embeds chain_id 1 by default; pass chain_id: to match a gateway whose
 # SIWE_CHAIN_ID policy differs (e.g. login(private_key:, domain:, chain_id: 5042002)).
 
@@ -192,7 +195,7 @@ Lower-level building blocks are also available:
 
 ```ruby
 nonce   = client.auth.nonce                                  # POST /auth/nonces
-session = client.auth.verify(message: siwe_msg, signature: sig)  # POST /auth
+session = client.auth.verify(message: siwe_msg, signature: sig)  # POST /auth — same hash as login
 client.auth.logout                                           # POST /auth/logout
 client.auth.revoke_all                                       # POST /auth/revoke_all
 ```
@@ -306,14 +309,15 @@ buyers, so it is the last step of merchant onboarding:
 
 ```ruby
 holding = client.wallets.add_token(account_id, id_or_address, chain_id: 84532, token: "0x…", default: true)
-client.wallets.enable_token(account_id, id_or_address, holding[:id])
-client.wallets.disable_token(account_id, id_or_address, holding[:id])  # keeps the holding
-client.wallets.remove_token(account_id, id_or_address, holding[:id])   # 204, soft delete
+client.wallets.enable_token(account_id, id_or_address, holding[:token_id])
+client.wallets.disable_token(account_id, id_or_address, holding[:token_id])  # keeps the holding
+client.wallets.remove_token(account_id, id_or_address, holding[:token_id])   # 204, soft delete
 ```
 
 `add_token` is idempotent by (wallet, chain, token): re-adding an existing holding
 re-enables it and answers 200 instead of creating a second row. The id passed to
-the other three is the **holding's** id, not the token address.
+the other three is the **token's** UUID (`token_id` on the holding), not an id of the
+holding row and not the token address — the gateway looks the holding up by (wallet, token).
 
 ## Payments
 
@@ -366,8 +370,9 @@ client.payments.refund(rail0_id, { signed_transaction: raw })
 
 ### Disputes (payer-driven)
 
-Disputes are authorized on-chain by the payer (no JWT) and follow the same
-prepare → submit pattern:
+Disputes are signed on-chain by the payer and follow the same prepare → submit
+pattern. Like the rest of `/payments` they need a session, but the payer's
+account-less SIWE login is enough:
 
 ```ruby
 prep = client.payments.dispute_prepare(rail0_id, reason: "0x…") # reason optional
@@ -710,6 +715,8 @@ lib/rail0/
   default_logger.rb    Rail0::LogEntry + Rail0::DefaultLogger (Logger subclass) for `logger:`
   api_error.rb         Rail0::ApiError (code/title/detail + #hint)
   error_hints.rb       Rail0.describe_error — per-code next steps, shared with the other SDKs
+  backoff.rb           Rail0::Backoff — retry delays and 429 jitter
+  webhook_signature.rb Rail0::WebhookSignature — delivery verification
   signing.rb           EIP-3009 + EIP-1559 signing (requires 'eth')
   stablecoins.rb       stablecoin address registry
   types.rb             generated Struct docs of the gateway schema (reference only)
@@ -722,6 +729,8 @@ lib/rail0/
     payment_methods.rb public payment-method discovery
     wallets.rb         account-scoped wallet management (JWT)
     payments.rb        payment lifecycle + disputes
+    disputes.rb        account-level dispute listing (JWT)
+    accounts.rb        the caller's own account profile (JWT)
     webhooks.rb        webhook subscription management (JWT)
     analytics.rb       account-scoped payment analytics (JWT)
     query.rb           shared query-string helper
