@@ -1,0 +1,93 @@
+# Publish the rail0-sdk gem to RubyGems.org when a GitHub release is published.
+#
+# Trusted Publishing (OIDC): RubyGems.org trusts THIS workflow file in THIS repo, so no
+# API key exists anywhere — not in the repo's secrets, not on a laptop — and no OTP
+# prompt interrupts a release. It works only after a gem owner registers the trusted
+# publisher on rubygems.org: rail0-sdk → Trusted publishers → GitHub Actions, with
+# repository `commercelayer/rail0-ruby` and workflow `release.yml` (no environment).
+#
+# Releasing:
+#   1. merge a PR that bumps Rail0::VERSION in lib/rail0/version.rb (e.g. 1.2.0);
+#   2. publish a GitHub release whose tag is that version with a `v` (v1.2.0), on main.
+# The tag must match Rail0::VERSION, or the run fails before anything is published.
+#
+# `release` runs the workflow as it exists IN THE TAGGED COMMIT, so a tag on a commit
+# that predates this file publishes nothing on its own. workflow_dispatch re-runs it for
+# a tag (choose the tag as the ref) — which is also how a release cut before this
+# workflow existed (v1.1.0) gets published.
+#
+# Not `rubygems/release-gem`: it runs `rake release`, which creates and pushes the tag
+# and the branch — the GitHub release already made the tag, and the job runs on a
+# detached tag checkout. This does the two steps that are left: build (behind the
+# rubocop + spec gate the Rakefile hangs off `build`) and push.
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token RubyGems.org exchanges for a short-lived push key
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rbsecp256k1 (via eth, for the specs) needs the system libsecp256k1 — same as ci.yml.
+      - name: Install libsecp256k1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsecp256k1-dev pkg-config
+
+      - uses: ruby/setup-ruby@v1
+        env:
+          BUNDLE_BUILD__RBSECP256K1: "--with-system-libraries"
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      # The tag names the version being released; Rail0::VERSION is what gets built.
+      - name: Check the tag matches Rail0::VERSION
+        id: version
+        run: |
+          version="$(ruby -e 'require "./lib/rail0/version"; print Rail0::VERSION')"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::ref '${GITHUB_REF_NAME}' does not match Rail0::VERSION ${version} (expected v${version})"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      # Idempotent: a version already on RubyGems.org is reported and skipped, so a
+      # re-run never fails on "Repushing of gem versions is not allowed".
+      - name: Skip a version already published
+        id: published
+        run: |
+          if curl -fsS https://rubygems.org/api/v1/versions/rail0-sdk.json \
+               | ruby -rjson -e 'exit(JSON.parse($stdin.read).any? { |v| v["number"] == ARGV[0] } ? 0 : 1)' "${{ steps.version.outputs.version }}"; then
+            echo "::notice::rail0-sdk ${{ steps.version.outputs.version }} is already on RubyGems.org — nothing to publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # `rake build` runs rubocop and the specs first (the Rakefile gates build on them),
+      # then writes pkg/rail0-sdk-<version>.gem.
+      - name: Style, specs, build
+        if: steps.published.outputs.skip != 'true'
+        env:
+          BUNDLE_BUILD__RBSECP256K1: "--with-system-libraries"
+        run: bundle exec rake build
+
+      - name: Configure Trusted Publishing credentials
+        if: steps.published.outputs.skip != 'true'
+        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+
+      - name: Publish
+        if: steps.published.outputs.skip != 'true'
+        run: gem push "pkg/rail0-sdk-${{ steps.version.outputs.version }}.gem"
