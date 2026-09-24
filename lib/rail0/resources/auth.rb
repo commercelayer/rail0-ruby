@@ -114,8 +114,8 @@ module Rail0
       # @param private_key [String] 0x-prefixed hex private key of the address to sign out.
       # @param domain      [String] Host of the API server (e.g. "api.rail0.xyz").
       # @param chain_id    [Integer] Chain ID to embed; same meaning and default as #login.
-      # @return [Hash] { revoked_all: true, cutoff_at: 1788210001 } — cutoff_at is epoch
-      #   seconds; every token of the address with an earlier `iat` is refused.
+      # @return [Hash] { revoked_all: true, cutoff_at: "2026-09-24T18:00:01Z" } — cutoff_at
+      #   is an ISO-8601 instant; every token of the address issued before it is refused.
       def revoke_all(private_key:, domain:, chain_id: 1)
         message, signature = sign_proof(private_key, domain, chain_id, REVOKE_ALL_STATEMENT)
         result = http.post("/auth/revoke_all", { message: message, signature: signature })

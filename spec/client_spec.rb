@@ -222,7 +222,7 @@ RSpec.describe Rail0::Client do
                       sent = JSON.parse(req.body)
                       true
                     end
-                    .to_return(status: 200, body: { revoked_all: true, cutoff_at: 1_788_210_001 }.to_json,
+                    .to_return(status: 200, body: { revoked_all: true, cutoff_at: "2026-09-24T18:00:01Z" }.to_json,
                                headers: json_headers)
 
       result = client.auth.revoke_all(private_key: SIWE_TEST_KEY, domain: "api.rail0.xyz")
@@ -236,7 +236,7 @@ RSpec.describe Rail0::Client do
       expect(sent["signature"]).to match(/\A0x[0-9a-f]{130}\z/i)
 
       # The cutoff, not just the boolean: it says exactly which sessions died.
-      expect(result).to eq(revoked_all: true, cutoff_at: 1_788_210_001)
+      expect(result).to eq(revoked_all: true, cutoff_at: "2026-09-24T18:00:01Z")
     end
 
     it "uses the gateway's exact revoke-all statement" do

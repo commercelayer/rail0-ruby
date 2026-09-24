@@ -219,7 +219,7 @@ private key and domain (and optional `chain_id:`, default 1) exactly like `login
 needs the same optional `eth`/`siwe-rb` gems. The proof carries its own statement
 (`"Sign out of RAIL0 everywhere"`), so a login signature cannot be replayed here. It is
 self-revoking: any token you hold dies too, so sign in again afterwards. It returns
-`{ revoked_all: true, cutoff_at: <epoch seconds> }`; `cutoff_at` is the field worth
+`{ revoked_all: true, cutoff_at: "<ISO-8601>" }`; `cutoff_at` is the field worth
 logging — it says exactly which sessions died, which `revoked_all: true` cannot.
 
 ## Catalog (public)
