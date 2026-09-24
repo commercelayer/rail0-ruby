@@ -125,6 +125,15 @@ RSpec.describe Rail0::Client do
       expect(result[:token]).to eq("signed.jwt.token")
       expect(result[:account_id]).to eq(ACCOUNT_ID)
       expect(result[:name]).to eq("Merchant")
+      # A standard session carries no admin field; it reads false, never nil.
+      expect(result[:admin]).to be(false)
+    end
+
+    it "surfaces the operator grant the gateway puts on an admin session" do
+      stub_request(:post, "#{BASE_URL}/auth")
+        .to_return(status: 201, body: SESSION_RESPONSE.merge(admin: true).to_json, headers: json_headers)
+      result = client.auth.verify(message: "msg", signature: "0xdeadbeef")
+      expect(result[:admin]).to be(true)
     end
   end
 
