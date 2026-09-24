@@ -167,7 +167,8 @@ path segments and does not fit the generic shape.
 
 ```ruby
 auth = client.auth.login(private_key: "0x…", domain: "api.rail0.xyz")
-# => { token:, address:, account_id:, name:, expires_at: }
+# => { token:, address:, account_id:, name:, expires_at:, admin: }
+# admin is true only for an account holding the operator grant (visibility only)
 # login embeds chain_id 1 by default; pass chain_id: to match a gateway whose
 # SIWE_CHAIN_ID policy differs (e.g. login(private_key:, domain:, chain_id: 5042002)).
 

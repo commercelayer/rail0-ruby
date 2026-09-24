@@ -47,9 +47,15 @@ module Rail0
       # Submit a pre-built SIWE message and its signature, returning a JWT.
       # @param message   [String] EIP-4361 formatted message string.
       # @param signature [String] 0x-prefixed hex signature.
-      # @return [Hash] { token:, address:, account_id:, name:, expires_at: }
+      # @return [Hash] { token:, address:, account_id:, name:, expires_at:, admin: }
+      #
+      # +admin+ is true only for an account holding the operator (administrators)
+      # grant: the gateway adds the field on an admin's session alone, and it is
+      # normalised here to a boolean so a standard login reads false rather than nil.
+      # Visibility only — every gated route re-checks the grant per request.
       def verify(message:, signature:)
-        http.post("/auth", { message: message, signature: signature })
+        session = http.post("/auth", { message: message, signature: signature })
+        session.merge(admin: session[:admin] == true)
       end
 
       # End the session whose token this client carries.
@@ -102,7 +108,7 @@ module Rail0
       # @param chain_id    [Integer] Chain ID to embed in the SIWE message. Must match
       #   the gateway's SIWE_CHAIN_ID policy (default 1); override only when the
       #   gateway is configured with a different login chain.
-      # @return [Hash] { token:, address:, account_id:, name:, expires_at: }
+      # @return [Hash] { token:, address:, account_id:, name:, expires_at:, admin: }
       def login(private_key:, domain:, chain_id: 1)
         message, signature = sign_proof(private_key, domain, chain_id, LOGIN_STATEMENT)
         verify(message: message, signature: signature)
