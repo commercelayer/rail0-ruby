@@ -12,9 +12,11 @@
 # The tag must match Rail0::VERSION, or the run fails before anything is published.
 #
 # `release` runs the workflow as it exists IN THE TAGGED COMMIT, so a tag on a commit
-# that predates this file publishes nothing on its own. workflow_dispatch re-runs it for
-# a tag (choose the tag as the ref) — which is also how a release cut before this
-# workflow existed (v1.1.0) gets published.
+# that predates this file publishes nothing on its own. workflow_dispatch takes the TAG
+# as an input and runs from main: it checks out that tag and publishes it. That is how a
+# release cut before this workflow existed (v1.1.0) gets published, and how a failed run
+# is retried. (Dispatching ON the tag would not work for such a tag: the file must
+# exist at the ref a dispatch runs.)
 #
 # Not `rubygems/release-gem`: it runs `rake release`, which creates and pushes the tag
 # and the branch — the GitHub release already made the tag, and the job runs on a
@@ -26,6 +28,10 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v1.1.0)"
+        required: true
 
 permissions:
   contents: read
@@ -40,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       # rbsecp256k1 (via eth, for the specs) needs the system libsecp256k1 — same as ci.yml.
       - name: Install libsecp256k1
@@ -57,10 +65,13 @@ jobs:
       # The tag names the version being released; Rail0::VERSION is what gets built.
       - name: Check the tag matches Rail0::VERSION
         id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           version="$(ruby -e 'require "./lib/rail0/version"; print Rail0::VERSION')"
-          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
-            echo "::error::ref '${GITHUB_REF_NAME}' does not match Rail0::VERSION ${version} (expected v${version})"
+          tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          if [ "${tag}" != "v${version}" ]; then
+            echo "::error::tag '${tag}' does not match Rail0::VERSION ${version} (expected v${version})"
             exit 1
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"

@@ -776,8 +776,8 @@ key to store or rotate and no OTP prompt.
 
 The workflow checks the tag against `Rail0::VERSION`, runs `rake build` (rubocop and the
 specs first, then the gem) and pushes it. A version already on RubyGems.org is skipped, so
-a re-run (Actions → release → Run workflow, choosing the tag) is always safe — that is also
-how a release cut before the workflow existed gets published.
+a re-run (Actions → release → Run workflow, from `main`, with the tag as input) is always
+safe — that is also how a release cut before the workflow existed gets published.
 
 One-time setup, by an owner of the gem on rubygems.org: rail0-sdk → Trusted publishers →
 GitHub Actions, repository `commercelayer/rail0-ruby`, workflow `release.yml`.
