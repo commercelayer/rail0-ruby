@@ -16,13 +16,15 @@ module Rail0
     # chain: it is denominated in the chain's native token, so it is reported per chain and
     # never totalled.
     #
+    # Figures cover every wallet of the account unless `payee` pins one of them.
+    #
     # These methods return the parsed JSON as-is, so the keys documented below are the
     # contract this SDK offers — there is no typed wrapper standing between them and the
     # gateway.
     class Analytics
       include Query
 
-      FILTERS = %i[mode status token chain_id from to].freeze
+      FILTERS = %i[mode status token chain_id from to payee].freeze
 
       attr_reader :http
 
@@ -38,6 +40,10 @@ module Rail0
       # @param chain_id [Integer, nil] Chain ID. Pass nil or 0 for all chains.
       # @param from [String, nil] ISO-8601 — payments created at/after this time.
       # @param to [String, nil] ISO-8601 — payments created at/before this time.
+      # @param payee [String, nil] One of the account's wallet addresses (0x…) — scopes the
+      #   figures to that wallet instead of all the account's wallets. The gateway refuses an
+      #   address the account does not own (403) and a malformed one (400). Accepted by all
+      #   three views.
       # @return [Hash] the headline KPIs:
       #   * `orders`, `disputed` — counts.
       #   * `refund_rate`, `dispute_rate` — fractions in [0,1], per ORDER.

@@ -542,9 +542,17 @@ client.analytics.breakdown(by: "operation")
 # => [{ key: "capture", orders: 1, transactions: 2 }, …]
 ```
 
-All three take the same filters — `mode`, `status`, `token`, `chain_id`, `from`, `to` — so
-the same question can be asked at three resolutions: one total, a series over time, a split
-by dimension. `from`/`to` filter the payment's CREATION date, which matters when reading
+All three take the same filters — `mode`, `status`, `token`, `chain_id`, `from`, `to`,
+`payee` — so the same question can be asked at three resolutions: one total, a series over
+time, a split by dimension. Figures cover all of the account's wallets unless `payee` pins
+one of them (a 0x address the account owns — another address is refused with 403, a
+malformed one with 400):
+
+```ruby
+client.analytics.summary(payee: "0xYourWallet…")
+```
+
+`from`/`to` filter the payment's CREATION date, which matters when reading
 gas: a payment created in one period and captured in the next books its capture gas in the
 first.
 

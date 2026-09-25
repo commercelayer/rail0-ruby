@@ -75,15 +75,53 @@ RSpec.describe Rail0::Resources::Analytics do
     it "forwards every filter and drops chain_id 0, which means 'all chains'" do
       stub = stub_request(:get, "#{BASE_URL}/analytics/summary")
              .with(query: { mode: "charge", status: "captured", token: "0xtok",
-                            from: "2026-01-01T00:00:00Z", to: "2026-02-01T00:00:00Z" })
+                            from: "2026-01-01T00:00:00Z", to: "2026-02-01T00:00:00Z",
+                            payee: "0xpayee" })
              .to_return(status: 200, body: summary_body.to_json,
                         headers: { "Content-Type" => "application/json" })
 
       client.analytics.summary(mode: "charge", status: "captured", token: "0xtok",
                                chain_id: 0, from: "2026-01-01T00:00:00Z",
-                               to: "2026-02-01T00:00:00Z")
+                               to: "2026-02-01T00:00:00Z", payee: "0xpayee")
 
       expect(stub).to have_been_requested
+    end
+
+    it "drops filters the gateway does not know" do
+      stub_get("/analytics/summary", summary_body)
+
+      client.analytics.summary(bogus: "x")
+
+      expect(a_request(:get, "#{BASE_URL}/analytics/summary")).to have_been_made
+    end
+  end
+
+  describe "payee" do
+    # One of the account's wallets narrows every view to it; the ownership check (403) and
+    # the address check (400) are the gateway's, so the SDK only has to forward it.
+    it "scopes timeseries and breakdown to one wallet too" do
+      ts = stub_request(:get, "#{BASE_URL}/analytics/timeseries")
+           .with(query: { interval: "day", payee: "0xpayee" })
+           .to_return(status: 200, body: [].to_json, headers: { "Content-Type" => "application/json" })
+      bd = stub_request(:get, "#{BASE_URL}/analytics/breakdown")
+           .with(query: { by: "status", payee: "0xpayee" })
+           .to_return(status: 200, body: [].to_json, headers: { "Content-Type" => "application/json" })
+
+      client.analytics.timeseries(interval: "day", payee: "0xpayee")
+      client.analytics.breakdown(by: "status", payee: "0xpayee")
+
+      expect(ts).to have_been_requested
+      expect(bd).to have_been_requested
+    end
+
+    it "lets a refused wallet surface as an ApiError" do
+      stub_request(:get, "#{BASE_URL}/analytics/summary")
+        .with(query: { payee: "0xnotmine" })
+        .to_return(status: 403, body: { error: "forbidden", message: "payee is not one of your wallets" }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      expect { client.analytics.summary(payee: "0xnotmine") }
+        .to raise_error(Rail0::ApiError) { |e| expect(e.status).to eq(403) }
     end
   end
 
