@@ -239,9 +239,10 @@ module Rail0
         submit(id, "void", params)
       end
 
-      # Phase 1 — build the unsigned release() transaction. +from+ overrides the
-      # submitter address (defaults to the payer). Returns uncaptured escrow to the
-      # payer.
+      # Phase 1 — build the unsigned release() transaction for +from+, whose nonce it
+      # carries. +from+ must be the payment's payer or payee (the gateway answers 422
+      # release_submitter_not_a_party otherwise); omitted, it is the signed-in caller.
+      # Returns uncaptured escrow to the payer.
       def release_prepare(id, from: nil, idempotency_key: nil)
         prepare(id, "release", from ? { from: from } : {}, idempotency_key: idempotency_key)
       end
