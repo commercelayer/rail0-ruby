@@ -377,6 +377,8 @@ client.payments.refund(rail0_id, { signed_transaction: raw })
 
 ### Disputes (payer-driven)
 
+> **Operations go through the gateway.** The gateway mirrors only the operations it prepared. A dispute, close-dispute, capture, void, refund or release sent to the RAIL0 contract directly — outside this SDK's prepare/submit calls — happens on-chain, but the payment's status and balances on the gateway do not change and no webhook is sent; a merchant is not told about a dispute its buyer opened that way. The gateway records it for its operators as a sync error (`external_operation`).
+
 Disputes are signed on-chain by the payer and follow the same prepare → submit
 pattern. Like the rest of `/payments` they need a session, but the payer's
 account-less SIWE login is enough:
