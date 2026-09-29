@@ -379,8 +379,10 @@ client.payments.create(params, idempotency_key: nil)  # or keyword fields
 # "idempotency_key_reused" (422) instead of returning the first payment.
 client.payments.get(id)
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
+client.payments.list(status: %w[authorized expired])  # any of several states → ?status=authorized,expired
 client.payments.list(operation: "refund")            # payments with at least one refund transaction
 client.payments.transactions(id, operation: "capture")
+client.payments.transactions(id, status: %w[submitting submitted])  # on its way to the chain
 # `operation` on both takes Payments::TRANSACTION_OPERATIONS — dispute and close_dispute included.
 client.payments.redrive(id, transaction_id)           # re-enqueue a stuck broadcast
 # Offer `redrive` on the row's `redrivable` flag — the same predicate the gateway guards
@@ -404,10 +406,29 @@ client.disputes.list(status: "closed", sort: "-opened_at")
 `payments.list`/`transactions`/`disputes` and `disputes.list` return a paginated
 `{ data:, meta: { page:, per_page:, total: } }` envelope.
 
-Every payment row carries `chain_id`, list rows included. You need it to display
-an amount: `amount` is in base units and the token's decimals resolve from
-`token` **plus** its chain — an address alone identifies a token only within one
-chain — so a listing never needs a `get(id)` per row to render totals.
+`status:` on `payments.list` and `payments.transactions` takes one value or an Array; an
+Array is sent comma-separated and matches **any** of the listed states. An empty Array is
+dropped like `nil` (no filter). An unknown value raises `Rail0::ApiError` 400
+`validation_failed`, naming it. Any query filter given an Array is sent the same way.
+
+Every payment row carries `chain_id` and `decimals`, list rows included (and the payment
+embedded in `disputes.list`). Amounts (`amount`, `capturable_amount`, `refundable_amount`)
+are in base units: divide by `10**decimals` to render them, with no `tokens.list` join and no
+`get(id)` per row. `decimals` is `nil` only when the gateway cannot resolve the token (a
+contract it has not loaded, a token deleted outright). Fall back to `tokens.list` then,
+matching on `token` **plus** `chain_id`, since an address alone identifies a token only
+within one chain.
+
+```ruby
+BigDecimal(row[:amount]) / (10**row[:decimals])  # "100000000", 6 → 100.0
+```
+
+Every payment row also carries `in_flight`: `true` while one of its transactions is on its
+way to the chain, meaning `submitting`, `submitted`, or `pending` holding its signed
+transaction (the `redrivable` rows). A `pending` row still waiting for its signature does not
+count, nor do `confirmed`/`failed` rows. While it is true the balances are about to move, so
+disable further actions on the payment. It comes on list rows too, which embed no
+transactions, so a bulk action can skip busy rows without a `get(id)` each.
 
 ### Refund (two-phase EIP-3009)
 

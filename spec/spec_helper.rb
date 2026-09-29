@@ -68,7 +68,9 @@ PAYMENT_DETAIL = {
   payee: PAYEE,
   token: TOKEN,
   chain_id: 84532,
+  decimals: 6,
   disputed: false,
+  in_flight: false,
   transactions: []
 }.freeze
 

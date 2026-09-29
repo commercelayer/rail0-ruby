@@ -32,7 +32,9 @@ module Rail0
 
       # List payments for the authenticated wallet (requires JWT). Returns
       # payments where the caller is the payer or payee.
-      # @param status [String, nil] Filter by payment status.
+      # @param status [String, Array<String>, nil] Filter by payment status: one state, or
+      #   an Array matching ANY of them (sent comma-separated, `status=authorized,expired`).
+      #   An unknown value is 400 `validation_failed` naming it.
       # @param mode [String, nil] Filter by mode ("authorize" or "charge").
       # @param payer [String, nil] Filter by payer address.
       # @param payee [String, nil] Filter by payee address.
@@ -52,7 +54,12 @@ module Rail0
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
       # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
-      # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
+      # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }. Each row
+      #   carries, besides the payment fields, `chain_id`, `decimals` (Integer, or nil when
+      #   the gateway can't resolve the token — fall back to {Tokens#list} then) to render the
+      #   base-unit amounts without a token lookup, and `in_flight` (Boolean: a transaction is
+      #   `submitting`, `submitted`, or `pending` holding its signed transaction — disable
+      #   further actions on the row while true).
       def list(status: nil, mode: nil, payer: nil, payee: nil, token: nil, rail0_id: nil,
                chain_id: nil, disputed: nil, operation: nil, min_amount: nil, max_amount: nil,
                created_from: nil, created_to: nil, sort: nil, page: nil, per_page: nil)
@@ -88,7 +95,9 @@ module Rail0
 
       # Fetch current payment state (DB status + live on-chain amounts + transactions).
       # @param id [String] Payment UUID or rail0_id.
-      # @return [Hash]
+      # @return [Hash] The payment with its embedded transactions, including `decimals`
+      #   (Integer or nil — divide `amount`, `capturable_amount` and `refundable_amount` by
+      #   10**decimals to render them) and `in_flight` (Boolean — see {list}).
       def get(id)
         http.get("/payments/#{id}")
       end
@@ -97,7 +106,8 @@ module Rail0
       # @param id [String] Payment UUID or rail0_id.
       # @param operation [String, nil] Filter by operation (see {TRANSACTION_OPERATIONS} —
       #   dispute and close_dispute included).
-      # @param status [String, nil] Filter by transaction status.
+      # @param status [String, Array<String>, nil] Filter by transaction status: one, or an
+      #   Array matching any of them (`%w[submitting submitted]` = on its way to the chain).
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
       # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).

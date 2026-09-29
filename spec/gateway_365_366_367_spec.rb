@@ -34,4 +34,64 @@ RSpec.describe "gateway alignment (#365, #366, #367)" do
     end
   end
 
+  describe "#367 — decimals and in_flight on payments" do
+    it "carries both on a list row" do
+      stub_list("/payments", [PAYMENT_DETAIL.merge(in_flight: true)])
+
+      row = client.payments.list[:data].first
+
+      expect(row).to include(decimals: 6, in_flight: true)
+    end
+
+    it "carries both on the detail, decimals possibly null" do
+      stub_request(:get, "#{BASE_URL}/payments/#{PAYMENT_ID}")
+        .to_return(status: 200, body: PAYMENT_DETAIL.merge(decimals: nil).to_json, headers: json)
+
+      payment = client.payments.get(PAYMENT_ID)
+
+      expect(payment).to include(decimals: nil, in_flight: false)
+    end
+  end
+
+  describe "#367 — multi-value status filter" do
+    it "sends an Array of payment statuses comma-separated" do
+      stub = stub_list("/payments?status=authorized,expired&chain_id=84532", [])
+
+      client.payments.list(status: %w[authorized expired], chain_id: 84532)
+
+      expect(stub).to have_been_requested
+    end
+
+    it "keeps a single status unchanged" do
+      stub = stub_list("/payments?status=authorized", [])
+
+      client.payments.list(status: "authorized")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "sends an Array of transaction statuses comma-separated" do
+      stub = stub_list("/payments/#{PAYMENT_ID}/transactions?status=submitting,submitted", [])
+
+      client.payments.transactions(PAYMENT_ID, status: %w[submitting submitted])
+
+      expect(stub).to have_been_requested
+    end
+
+    it "drops an empty Array, as it does nil, instead of sending a blank value" do
+      stub = stub_list("/payments?chain_id=84532", [])
+
+      client.payments.list(status: [], chain_id: 84532)
+
+      expect(stub).to have_been_requested
+    end
+
+    it "escapes each element but keeps the separator literal" do
+      stub = stub_list("/payments?status=a%26b,c", [])
+
+      client.payments.list(status: ["a&b", nil, "c"])
+
+      expect(stub).to have_been_requested
+    end
+  end
 end
