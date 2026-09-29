@@ -324,6 +324,7 @@ module Rail0
       :operation,         # String — Same vocabulary as `Transaction.operation` — dispute rows go stale too.
       :payment_id,        # String — Protocol-level rail0_id.
       :chain_id,          # Integer
+      :contract_address,  # String — Address (lowercase) of the RAIL0 deployment the payment is bound to, archived versions included. The sweeper accepts a receipt's event only when this contract emitted it.
       keyword_init: true
     )
 
