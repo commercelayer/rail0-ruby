@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "query"
+
 module Rail0
   module Resources
     # The merchant account itself (requires JWT).
@@ -17,6 +19,8 @@ module Rail0
     # {Resources::Wallets}; buyer-facing discovery of what a merchant accepts lives on
     # {Resources::PaymentMethods}.
     class Accounts
+      include Query
+
       attr_reader :http
 
       def initialize(http)
@@ -29,7 +33,7 @@ module Rail0
       # @return [Hash] `id`, `name`, `email`, `created_at`, `updated_at`. `email` is part of
       #   the response because only the account's owner, or an operator, can read it.
       def get(account_id)
-        http.get("/accounts/#{account_id}")
+        http.get("/accounts/#{segment(account_id)}")
       end
 
       # Update the account's own profile (PATCH /accounts/:account_id).
@@ -55,7 +59,7 @@ module Rail0
         body[:email] = email unless email.nil?
         raise ArgumentError, "at least one of name or email is required" if body.empty?
 
-        http.patch("/accounts/#{account_id}", body)
+        http.patch("/accounts/#{segment(account_id)}", body)
       end
     end
   end
