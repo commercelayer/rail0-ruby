@@ -112,6 +112,19 @@ RSpec.describe "error surface" do
       end
     end
 
+    # Codes the gateway split out of generic 403/422s, each needing a different next step.
+    it "covers the party, deactivation and redrive codes" do
+      %w[account_deactivated wallet_deactivated release_submitter_not_a_party
+         not_redrivable payer_must_be_caller].each do |code|
+        expect(Rail0.describe_error(code)).not_to be_nil, "#{code} has no hint"
+      end
+    end
+
+    # The one fact a deactivated merchant most needs: giving money back still works.
+    it "tells a deactivated account that void, release and refund still work" do
+      expect(Rail0.describe_error("account_deactivated")).to include("void", "release", "refund")
+    end
+
     # `forbidden` is the one whose hint has to say something the code cannot, because the
     # gateway sends it with NO detail for the case that matters most — a missing operator
     # grant — so the hint is everything the caller reads.
