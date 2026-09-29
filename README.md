@@ -237,12 +237,29 @@ logging — it says exactly which sessions died, which `revoked_all: true` canno
 ## Catalog (public)
 
 ```ruby
-client.chains.list                                    # GET /blockchains (each chain's :contract is the active RAIL0 deployment)
+client.chains.list                                    # GET /blockchains (each chain's :contract is the active RAIL0 deployment, :settlement its measured confirm time)
 client.chains.list(network_type: "testnet", symbol: "ETH")
 client.tokens.list                                    # GET /tokens — every token, retired ones included
 client.tokens.list(chain_id: 84532, symbol: "USDC")
 client.tokens.list(active: true)                      # what a NEW payment may use
 ```
+
+Each chain's `settlement` is how long an operation on it has taken to confirm **on this
+gateway**, end to end (the chain's finality lag plus the gateway/indexer pipeline):
+`{ p50_seconds:, p90_seconds:, sample_size:, window_days: }`, percentiles of broadcast →
+confirmation over the trailing `window_days`, in whole seconds rounded up. It is always
+present, but the percentiles are `nil` below the gateway's minimum sample (20), so size a
+polling deadline from it with a fixed fallback:
+
+```ruby
+FALLBACK = 15 * 60 # seconds
+chain    = client.chains.list.find { |c| c[:chain_id] == 84532 }
+p90      = chain.dig(:settlement, :p90_seconds)
+deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + (p90 ? [3 * p90, FALLBACK].max : FALLBACK)
+```
+
+It is a trailing-window measurement (a capacity figure, cached by the gateway for 10
+minutes), not a promise, so treat it as a hint and never as a timeout that fails a payment.
 
 `tokens.list` without `active:` is the **historical** catalogue — a payment references its
 token forever, so a retired one must still resolve. A checkout picker should pass
