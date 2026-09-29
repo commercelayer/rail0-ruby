@@ -18,6 +18,11 @@ module Rail0
       # Operations accepted by the prepare/submit endpoints.
       OPERATIONS = %w[authorize capture charge void release refund].freeze
 
+      # Every operation a transaction row can carry — a superset of {OPERATIONS}, since
+      # dispute/close_dispute have routes of their own. The values the `operation`
+      # filters on {list} and {transactions} accept.
+      TRANSACTION_OPERATIONS = (OPERATIONS + %w[dispute close_dispute]).freeze
+
       attr_reader :http
 
       def initialize(http)
@@ -35,6 +40,8 @@ module Rail0
       # @param rail0_id [String, nil] Filter by the logical on-chain payment id (0x…).
       # @param chain_id [Integer, nil] Filter by the payment's chain.
       # @param disputed [Boolean, nil] Filter by whether an open dispute exists.
+      # @param operation [String, nil] Only payments carrying at least one transaction with
+      #   this operation (see {TRANSACTION_OPERATIONS}).
       # @param min_amount [String, nil] Minimum amount in token BASE UNITS (inclusive).
       # @param max_amount [String, nil] Maximum amount in token BASE UNITS (inclusive).
       #   These two really are base units — the filter runs against the stored column.
@@ -43,14 +50,15 @@ module Rail0
       # @param created_from [String, nil] Only payments created at/after this ISO-8601 time.
       # @param created_to [String, nil] Only payments created at/before this ISO-8601 time.
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
-      # @param page [Integer, nil] Page number (1-based).
+      # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def list(status: nil, mode: nil, payer: nil, payee: nil, token: nil, rail0_id: nil,
-               chain_id: nil, disputed: nil, min_amount: nil, max_amount: nil,
+               chain_id: nil, disputed: nil, operation: nil, min_amount: nil, max_amount: nil,
                created_from: nil, created_to: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(status: status, mode: mode, payer: payer, payee: payee, token: token,
                             rail0_id: rail0_id, chain_id: chain_id, disputed: disputed,
+                            operation: operation,
                             min_amount: min_amount, max_amount: max_amount,
                             created_from: created_from, created_to: created_to,
                             sort: sort, page: page, per_page: per_page)
@@ -87,10 +95,11 @@ module Rail0
 
       # List on-chain transactions for a payment.
       # @param id [String] Payment UUID or rail0_id.
-      # @param operation [String, nil] Filter by operation (see {OPERATIONS}).
+      # @param operation [String, nil] Filter by operation (see {TRANSACTION_OPERATIONS} —
+      #   dispute and close_dispute included).
       # @param status [String, nil] Filter by transaction status.
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
-      # @param page [Integer, nil] Page number (1-based).
+      # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def transactions(id, operation: nil, status: nil, sort: nil, page: nil, per_page: nil)
@@ -149,7 +158,7 @@ module Rail0
       # @param id [String] Payment UUID or rail0_id.
       # @param status [String, nil] Filter by dispute status ("open" or "closed").
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
-      # @param page [Integer, nil] Page number (1-based).
+      # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def disputes(id, status: nil, sort: nil, page: nil, per_page: nil)
