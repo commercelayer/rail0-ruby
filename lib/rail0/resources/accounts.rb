@@ -4,12 +4,11 @@ module Rail0
   module Resources
     # The merchant account itself (requires JWT).
     #
-    # Read and update, both on the caller's OWN account: the gateway guards
-    # `/accounts/:account_id` with an ownership check — a JWT whose account matches the
-    # path — so a caller can only ever reach its own. There is no endpoint for reading or
-    # changing another merchant's, and an id that is not an account answers 404 exactly
-    # as another account's id does, so the pair cannot be used to learn whether an
-    # account exists.
+    # Read and update. The gateway guards `/accounts/:account_id` with an
+    # owner-or-operator check: a merchant session reaches only its OWN account, and an
+    # operator (an admin session) may reach any. For anyone else another account's id
+    # answers the same 403 `not_your_account` as a plain ownership miss, so the pair
+    # cannot be used to learn whether an account exists.
     #
     # The gateway's PATCH also takes `active`, but that field is the OPERATOR's (an owner
     # sending it gets 403), so it is deliberately not exposed here.
@@ -28,8 +27,7 @@ module Rail0
       # The account's own profile.
       # @param account_id [String] The account UUID — must be the one this JWT belongs to.
       # @return [Hash] `id`, `name`, `email`, `created_at`, `updated_at`. `email` is part of
-      #   the response because the holder is this endpoint's only possible caller: it is a
-      #   merchant reading its own contact address, never another's.
+      #   the response because only the account's owner, or an operator, can read it.
       def get(account_id)
         http.get("/accounts/#{account_id}")
       end
