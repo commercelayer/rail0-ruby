@@ -15,9 +15,9 @@ RSpec.describe Rail0::Backoff do
       expect(delay).to be > 30
     end
 
-    it "caps an instructed wait, because the gateway sends the whole period" do
-      # rack_attack.rb sends `period`, not the time remaining, so a limit hit one second
-      # into the window still asks for the full 60.
+    it "caps an instructed wait against a hostile or misconfigured value" do
+      # The gateway now sends the time left in the window, but the header crosses whatever
+      # sits in between, so an absurd value is still clamped.
       delay = described_class.throttle_delay(retry_after: 3600, attempt: 1, base: 0.2, cap: 60,
                                              jitter: 0)
       expect(delay).to eq(60)

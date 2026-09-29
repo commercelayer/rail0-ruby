@@ -17,8 +17,8 @@ module Rail0
     #   It does NOT need `max_retries` to be set as well. That pairing is a footgun —
     #   the flag would silently do nothing — so on its own it allows one retry.
     # @param retry_after_cap [Numeric] longest wait to honour, in seconds. The gateway
-    #   sends its whole throttle period as Retry-After rather than the time left in it,
-    #   so this bounds both the over-wait and any hostile value from in between.
+    #   sends the time left in its throttle window as Retry-After; this bounds any
+    #   hostile or misconfigured value from in between.
     def initialize(base_url:, headers: {}, token: nil, timeout: 30, logger: nil,
                    max_retries: 0, retry_delay: 0.2, retry_on_429: false,
                    retry_after_cap: 60)

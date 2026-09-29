@@ -24,11 +24,10 @@ module Rail0
   #    per-session bucket and would all be told the same Retry-After, wake together, and
   #    recreate the burst the limiter just rejected.
   #
-  # 2. THE CAP IS NOT PARANOIA. The gateway sends the WHOLE period as Retry-After
-  #    (rack_attack.rb: `headers["retry-after"] = match_data[:period].to_s`), not the time
-  #    remaining in the window — so hitting the limit one second in is told to wait the
-  #    full 60. Capping bounds both that over-wait and a hostile or misconfigured value
-  #    from anything between the client and the gateway.
+  # 2. THE CAP IS NOT PARANOIA. The gateway sends the time LEFT in the throttle window as
+  #    Retry-After (it used to send the whole period, which over-waited by up to a full
+  #    window). Even an exact number comes through whatever sits between the client and
+  #    the gateway, so capping bounds a hostile or misconfigured value.
   module Backoff
     module_function
 

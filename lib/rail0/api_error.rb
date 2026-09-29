@@ -21,9 +21,10 @@ module Rail0
     #     otherwise. Surfaced because the alternative is a caller guessing: the SDK used
     #     to drop the header, so "rate limited" arrived with no idea of for how long.
     #
-    #     Note it is the WHOLE window the gateway throttles over, not the time left in it
-    #     — the limiter sends its period verbatim — so it is an upper bound on the wait,
-    #     not a measurement. Rail0::Backoff clamps it for that reason.
+    #     It is the time LEFT in the current throttle window, not the window's length:
+    #     the limiter buckets by wall clock, so the gateway computes the remainder exactly
+    #     (the same number it sends as RateLimit-Reset). Rail0::Backoff still clamps it,
+    #     against a hostile or misconfigured value from anything in between.
     attr_reader :status, :error, :title, :detail, :retry_after
 
     # @param status [Integer]
