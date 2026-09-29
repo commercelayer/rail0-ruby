@@ -71,7 +71,7 @@ module Rail0
       # @param id [String] Webhook UUID.
       # @return [Hash]
       def get(id)
-        http.get("/webhooks/#{id}")
+        http.get("/webhooks/#{segment(id)}")
       end
 
       # Update a webhook's name, callback_url, and/or topics.
@@ -87,35 +87,35 @@ module Rail0
         body[:name]         = name          unless name.nil?
         body[:callback_url] = callback_url  unless callback_url.nil?
         body[:topics]       = Array(topics) unless topics.nil?
-        http.patch("/webhooks/#{id}", body)
+        http.patch("/webhooks/#{segment(id)}", body)
       end
 
       # Re-enable a disabled webhook.
       # @param id [String] Webhook UUID.
       # @return [Hash]
       def enable(id)
-        http.put("/webhooks/#{id}/enable")
+        http.put("/webhooks/#{segment(id)}/enable")
       end
 
       # Disable a webhook (stops deliveries without deleting it).
       # @param id [String] Webhook UUID.
       # @return [Hash]
       def disable(id)
-        http.put("/webhooks/#{id}/disable")
+        http.put("/webhooks/#{segment(id)}/disable")
       end
 
       # Generate a new shared secret, returned once on the response.
       # @param id [String] Webhook UUID.
       # @return [Hash] webhook record including the new shared_secret
       def rotate_secret(id)
-        http.put("/webhooks/#{id}/rotate_secret")
+        http.put("/webhooks/#{segment(id)}/rotate_secret")
       end
 
       # Reset the delivery circuit breaker and re-enable the webhook.
       # @param id [String] Webhook UUID.
       # @return [Hash]
       def reset_circuit(id)
-        http.put("/webhooks/#{id}/reset_circuit")
+        http.put("/webhooks/#{segment(id)}/reset_circuit")
       end
 
       # List delivery attempts for a webhook.
@@ -138,7 +138,7 @@ module Rail0
         query = build_query(status: status, topic: topic, payment_id: payment_id,
                             response_code: response_code, since: since, until: until_time,
                             sort: sort, page: page, per_page: per_page)
-        http.get_list("/webhooks/#{id}/event_callbacks#{query}")
+        http.get_list("/webhooks/#{segment(id)}/event_callbacks#{query}")
       end
 
       # Re-deliver one recorded delivery's exact payload
@@ -161,14 +161,14 @@ module Rail0
       # @param callback_id [String] The event callback's UUID (from {event_callbacks}).
       # @return [Hash] `{ status: "queued" }` (HTTP 202).
       def redeliver(id, callback_id)
-        http.post("/webhooks/#{id}/event_callbacks/#{callback_id}/redeliver", {})
+        http.post("/webhooks/#{segment(id)}/event_callbacks/#{segment(callback_id)}/redeliver", {})
       end
 
       # Delete a webhook. Returns HTTP 204.
       # @param id [String] Webhook UUID.
       # @return [nil]
       def delete(id)
-        http.delete("/webhooks/#{id}")
+        http.delete("/webhooks/#{segment(id)}")
       end
     end
   end

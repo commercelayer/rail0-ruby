@@ -99,7 +99,7 @@ module Rail0
       #   (Integer or nil — divide `amount`, `capturable_amount` and `refundable_amount` by
       #   10**decimals to render them) and `in_flight` (Boolean — see {list}).
       def get(id)
-        http.get("/payments/#{id}")
+        http.get("/payments/#{segment(id)}")
       end
 
       # List on-chain transactions for a payment.
@@ -114,7 +114,7 @@ module Rail0
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def transactions(id, operation: nil, status: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(operation: operation, status: status, sort: sort, page: page, per_page: per_page)
-        http.get_list("/payments/#{id}/transactions#{query}")
+        http.get_list("/payments/#{segment(id)}/transactions#{query}")
       end
 
       # Fetch ONE of a payment's transactions
@@ -130,7 +130,7 @@ module Rail0
       # @param transaction_id [String] Transaction UUID.
       # @return [Hash]
       def get_transaction(id, transaction_id)
-        http.get("/payments/#{id}/transactions/#{transaction_id}")
+        http.get("/payments/#{segment(id)}/transactions/#{segment(transaction_id)}")
       end
 
       # Re-enqueue a stuck broadcast
@@ -153,7 +153,7 @@ module Rail0
       # @param transaction_id [String] The transaction row to redrive.
       # @return [Hash] The transaction, re-enqueued.
       def redrive(id, transaction_id)
-        http.post("/payments/#{id}/transactions/#{transaction_id}/redrive", {})
+        http.post("/payments/#{segment(id)}/transactions/#{segment(transaction_id)}/redrive", {})
       end
 
       # Submit the payer's EIP-712 signature (PUT /payments/{id}/sign).
@@ -161,7 +161,7 @@ module Rail0
       # @param params [Hash] { signature: "0x…" } (65-byte 0x-prefixed hex).
       # @return [Hash]
       def sign(id, params)
-        http.put("/payments/#{id}/sign", params)
+        http.put("/payments/#{segment(id)}/sign", params)
       end
 
       # List a payment's dispute open/close history.
@@ -173,7 +173,7 @@ module Rail0
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def disputes(id, status: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(status: status, sort: sort, page: page, per_page: per_page)
-        http.get_list("/payments/#{id}/disputes#{query}")
+        http.get_list("/payments/#{segment(id)}/disputes#{query}")
       end
 
       # Build the unsigned transaction for an operation
@@ -193,7 +193,7 @@ module Rail0
       # with different terms is refused 422 +idempotency_key_reused+. Scoped to this
       # payment. (rail0-gateway#331)
       def prepare(id, operation, body = nil, idempotency_key: nil)
-        http.post("/payments/#{id}/#{operation}/prepare", body,
+        http.post("/payments/#{segment(id)}/#{segment(operation)}/prepare", body,
                   headers: idempotency_headers(idempotency_key))
       end
 
@@ -203,7 +203,7 @@ module Rail0
       # @param params [Hash] { signed_transaction: "0x…" }.
       # @return [Hash]
       def submit(id, operation, params)
-        http.post("/payments/#{id}/#{operation}", params)
+        http.post("/payments/#{segment(id)}/#{segment(operation)}", params)
       end
 
       # Record a transaction the caller broadcast themselves (MetaMask/wallet flow)
@@ -213,7 +213,7 @@ module Rail0
       # @param params [Hash] { transaction_hash: "0x…" }.
       # @return [Hash]
       def submit_by_hash(id, operation, params)
-        http.post("/payments/#{id}/#{operation}/submitted", params)
+        http.post("/payments/#{segment(id)}/#{segment(operation)}/submitted", params)
       end
 
       # Phase 1 — build the unsigned authorize() transaction (escrow hold).
@@ -302,7 +302,7 @@ module Rail0
       # @param params [Hash] { signed_transaction: "0x…" }.
       # @return [Hash]
       def dispute(id, params)
-        http.post("/payments/#{id}/dispute", params)
+        http.post("/payments/#{segment(id)}/dispute", params)
       end
 
       # Phase 1 — build the unsigned closeDispute() transaction (payer only).
@@ -318,7 +318,7 @@ module Rail0
       # @param params [Hash] { signed_transaction: "0x…" }.
       # @return [Hash]
       def close_dispute(id, params)
-        http.post("/payments/#{id}/dispute/close", params)
+        http.post("/payments/#{segment(id)}/dispute/close", params)
       end
 
       # The payer's counterpart to {#submit_by_hash}, which covers only the operations
@@ -336,7 +336,7 @@ module Rail0
       # @param params [Hash] { transaction_hash: "0x…" }.
       # @return [Hash]
       def dispute_submit_by_hash(id, params)
-        http.post("/payments/#{id}/dispute/submitted", params)
+        http.post("/payments/#{segment(id)}/dispute/submitted", params)
       end
 
       # Report an already-broadcast close-dispute transaction by hash (payer only); HTTP 202.
@@ -344,14 +344,17 @@ module Rail0
       # @param params [Hash] { transaction_hash: "0x…" }.
       # @return [Hash]
       def close_dispute_submit_by_hash(id, params)
-        http.post("/payments/#{id}/dispute/close/submitted", params)
+        http.post("/payments/#{segment(id)}/dispute/close/submitted", params)
       end
 
       private
 
+      # +path+ is one of this class's own literals ("dispute/prepare",
+      # "dispute/close/prepare"), never caller input, so it is interpolated as-is:
+      # its `/` is meant to separate segments. Only +id+ goes through {#segment}.
       def prepare_dispute(path, id, reason, idempotency_key: nil)
         body = reason ? { reason: reason } : {}
-        http.post("/payments/#{id}/#{path}", body,
+        http.post("/payments/#{segment(id)}/#{path}", body,
                   headers: idempotency_headers(idempotency_key))
       end
 

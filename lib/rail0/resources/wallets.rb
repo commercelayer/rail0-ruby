@@ -38,7 +38,7 @@ module Rail0
         query = build_query(chain_id: chain_id, token_symbol: token_symbol, active: active,
                             default: default, token_active: token_active,
                             sort: sort, page: page, per_page: per_page)
-        http.get_list("/accounts/#{account_id}/wallets#{query}")
+        http.get_list("/accounts/#{segment(account_id)}/wallets#{query}")
       end
 
       # Fetch a single wallet by its id or 0x address.
@@ -46,7 +46,7 @@ module Rail0
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @return [Hash] id, address, label, active
       def get(account_id, id_or_address)
-        http.get("/accounts/#{account_id}/wallets/#{id_or_address}")
+        http.get(wallet_path(account_id, id_or_address))
       end
 
       # Add a wallet to the account.
@@ -74,7 +74,7 @@ module Rail0
       def create(account_id, address:, message:, signature:, label: nil)
         body = { address: address, message: message, signature: signature }
         body[:label] = label unless label.nil?
-        http.post("/accounts/#{account_id}/wallets", body)
+        http.post("/accounts/#{segment(account_id)}/wallets", body)
       end
 
       # Update a wallet's label and/or active status.
@@ -87,7 +87,7 @@ module Rail0
         body = {}
         body[:label]  = label  unless label.nil?
         body[:active] = active unless active.nil?
-        http.patch("/accounts/#{account_id}/wallets/#{id_or_address}", body)
+        http.patch(wallet_path(account_id, id_or_address), body)
       end
 
       # Soft-delete (deactivate) a wallet. Returns HTTP 204.
@@ -95,7 +95,7 @@ module Rail0
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @return [nil]
       def delete(account_id, id_or_address)
-        http.delete("/accounts/#{account_id}/wallets/#{id_or_address}")
+        http.delete(wallet_path(account_id, id_or_address))
       end
 
       # Read a wallet's live on-chain balances across the configured chains. Each
@@ -109,7 +109,7 @@ module Rail0
       # @return [Hash] wallet_id, address, balances
       def balances(account_id, id_or_address, chain_id: nil, token_symbol: nil)
         query = build_query(chain_id: chain_id, token_symbol: token_symbol)
-        http.get("/accounts/#{account_id}/wallets/#{id_or_address}/balances#{query}")
+        http.get("#{wallet_path(account_id, id_or_address)}/balances#{query}")
       end
 
       # ── Token holdings ────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ module Rail0
       def add_token(account_id, id_or_address, chain_id:, token:, default: nil)
         body = { chain_id: chain_id, token: token }
         body[:default] = default unless default.nil?
-        http.post("/accounts/#{account_id}/wallets/#{id_or_address}/tokens", body)
+        http.post("#{wallet_path(account_id, id_or_address)}/tokens", body)
       end
 
       # Stop accepting a token on this wallet (soft delete). Returns HTTP 204.
@@ -150,13 +150,13 @@ module Rail0
       #
       # @return [nil]
       def remove_token(account_id, id_or_address, token_id)
-        http.delete("/accounts/#{account_id}/wallets/#{id_or_address}/tokens/#{token_id}")
+        http.delete("#{wallet_path(account_id, id_or_address)}/tokens/#{segment(token_id)}")
       end
 
       # Re-enable an existing token holding.
       # @return [Hash] the token holding
       def enable_token(account_id, id_or_address, token_id)
-        http.patch("/accounts/#{account_id}/wallets/#{id_or_address}/tokens/#{token_id}/enable")
+        http.patch("#{wallet_path(account_id, id_or_address)}/tokens/#{segment(token_id)}/enable")
       end
 
       # Disable an existing token holding without forgetting it — the holding (and
@@ -166,7 +166,15 @@ module Rail0
       # active default holding — promote another token to default first.
       # @return [Hash] the token holding
       def disable_token(account_id, id_or_address, token_id)
-        http.patch("/accounts/#{account_id}/wallets/#{id_or_address}/tokens/#{token_id}/disable")
+        http.patch("#{wallet_path(account_id, id_or_address)}/tokens/#{segment(token_id)}/disable")
+      end
+
+      private
+
+      # "/accounts/{account_id}/wallets/{id_or_address}" with both ids escaped by
+      # {Query#segment} — the prefix every single-wallet route shares.
+      def wallet_path(account_id, id_or_address)
+        "/accounts/#{segment(account_id)}/wallets/#{segment(id_or_address)}"
       end
     end
   end

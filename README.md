@@ -770,6 +770,17 @@ RAIL0 itself:
 A failed transaction carries the same triple as `error_code`, `error_title` and
 `error_detail`, whether it reverted on-chain or was refused before broadcast.
 
+### Ids in request paths
+
+Every id (and operation name) a method interpolates into a request path is
+percent-encoded as ONE path segment, so a value carrying `/`, `?`, `#`, a space or
+non-ASCII characters can never address a different route than the method names
+(`payments.get("../webhooks/x")` requests `/payments/..%2Fwebhooks%2Fx`, not
+`/webhooks/x`). The ids the gateway hands out — UUIDs, `0x` hex — are unchanged by it.
+A value that is `nil`, empty, `"."` or `".."` is never a valid id, and would still
+re-target the request once encoded, so the method raises `ArgumentError` before
+sending anything.
+
 ## Configuration
 
 ```ruby
@@ -854,7 +865,7 @@ lib/rail0/
     accounts.rb        the caller's own account profile, read and update (JWT)
     webhooks.rb        webhook subscription management (JWT)
     analytics.rb       account-scoped payment analytics (JWT)
-    query.rb           shared query-string helper
+    query.rb           shared query-string and path-segment helpers
 ```
 
 ## Development
