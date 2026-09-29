@@ -85,6 +85,17 @@ RSpec.describe Rail0::Client do
       client.tokens.list(chain_id: 0)
       expect(stub).to have_been_requested
     end
+
+    # Omitted, the gateway returns the historical catalogue (retired tokens too), so a
+    # checkout picker has to ask for active: true — and false must reach it as well.
+    it "forwards the active filter, false included" do
+      active   = stub_get("/tokens?active=true", [TOKEN_INFO])
+      inactive = stub_get("/tokens?chain_id=84532&active=false", [])
+      client.tokens.list(active: true)
+      client.tokens.list(chain_id: 84532, active: false)
+      expect(active).to have_been_requested
+      expect(inactive).to have_been_requested
+    end
   end
 
   # ── Payment methods (public) ─────────────────────────────────────────────
@@ -343,6 +354,12 @@ RSpec.describe Rail0::Client do
       expect(stub).to have_been_requested
     end
 
+    it "list forwards token_active, which narrows the nested holdings" do
+      stub = stub_list("#{base}?token_active=false", [WALLET_WITH_TOKENS])
+      client.wallets.list(ACCOUNT_ID, token_active: false)
+      expect(stub).to have_been_requested
+    end
+
     it "get fetches a single wallet by id or address" do
       stub_get("#{base}/#{WALLET_ID}", WALLET)
       expect(client.wallets.get(ACCOUNT_ID, WALLET_ID)[:id]).to eq(WALLET_ID)
@@ -535,6 +552,12 @@ RSpec.describe Rail0::Client do
       expect(stub).to have_been_requested
       expect(result[:meta][:total]).to eq(1)
     end
+
+    it "forwards the operation filter (payments carrying such a transaction)" do
+      stub = stub_list("/payments?operation=dispute", [PAYMENT_DETAIL])
+      client.payments.list(operation: "dispute")
+      expect(stub).to have_been_requested
+    end
   end
 
   describe "payments.transactions" do
@@ -542,6 +565,14 @@ RSpec.describe Rail0::Client do
       stub_list("/payments/#{PAYMENT_ID}/transactions?operation=capture", [SUBMIT_RESPONSE])
       result = client.payments.transactions(PAYMENT_ID, operation: "capture")
       expect(result[:data].first[:operation]).to eq("authorize")
+    end
+
+    # The filter accepts every value a transaction row can carry, not only the six
+    # prepare/submit operations — a dispute poll is the case that once 400'd.
+    it "documents the transaction operations as a superset of the prepare/submit ones" do
+      ops = Rail0::Resources::Payments::TRANSACTION_OPERATIONS
+      expect(ops).to include(*Rail0::Resources::Payments::OPERATIONS, "dispute", "close_dispute")
+      expect(ops).to be_frozen
     end
   end
 
@@ -765,6 +796,33 @@ RSpec.describe Rail0::Client do
                        [{ id: "cb1", status: "failed" }])
       client.webhooks.event_callbacks(WEBHOOK_ID, status: "failed", until_time: "2026-07-10T00:00:00Z")
       expect(stub).to have_been_requested
+    end
+
+    it "event_callbacks forwards response_code" do
+      stub = stub_list("/webhooks/#{WEBHOOK_ID}/event_callbacks?status=failed&response_code=500",
+                       [{ id: "cb1", status: "failed", response_code: "500" }])
+      client.webhooks.event_callbacks(WEBHOOK_ID, status: "failed", response_code: 500)
+      expect(stub).to have_been_requested
+    end
+
+    describe "redeliver" do
+      let(:callback_id) { "019f8a3d-c0de-7b00-8b75-8427f7e591d2" }
+      let(:path) { "/webhooks/#{WEBHOOK_ID}/event_callbacks/#{callback_id}/redeliver" }
+
+      it "POSTs to the callback's redeliver route and returns the 202 queued answer" do
+        stub = stub_post(path, { status: "queued" }, status: 202)
+        expect(client.webhooks.redeliver(WEBHOOK_ID, callback_id)).to eq(status: "queued")
+        expect(stub).to have_been_requested
+      end
+
+      # A callback of another webhook, an unknown id and a payload-less row all 404.
+      it "surfaces the gateway's 404 as an ApiError" do
+        stub_request(:post, "#{BASE_URL}#{path}")
+          .to_return(status: 404, body: { code: "not_found", detail: "event_callback not found" }.to_json,
+                     headers: json_headers)
+        expect { client.webhooks.redeliver(WEBHOOK_ID, callback_id) }
+          .to raise_error(Rail0::ApiError) { |e| expect(e.status).to eq(404) }
+      end
     end
   end
 
