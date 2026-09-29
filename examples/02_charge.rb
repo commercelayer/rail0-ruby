@@ -73,7 +73,9 @@ loop do
   state = payer.payments.get(rail0_id)
   puts "  status: #{state[:status]}"
   break if state[:status] == "charged"
-  raise "failed: #{state[:last_error_code]} — #{state[:last_error_message]}" if state[:status] == "failed"
+  # "failed" is not a payment status: a failed attempt leaves the status where it was and
+  # sets last_error_code (cleared again once an operation confirms).
+  raise "failed: #{state[:last_error_code]} — #{state[:last_error_message]}" if state[:last_error_code]
 
   sleep 2
 end

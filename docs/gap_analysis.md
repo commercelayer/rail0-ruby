@@ -37,7 +37,7 @@ based on direct reads of both `rail0-ruby` (`Rail0::Client`, `Rail0::Signing`,
 | Currency model mismatch | Fiat `amount_cents`/`currency_code` vs. RAIL0's token base units/`token_decimals`. Conversion is mechanical; no existing FX story for currency ≠ stablecoin peg. | ❌ |
 | No on-chain address concept in the data model | The payer's wallet address has no home today; `client_data` (already used for `gift_card_code`-style params) is the natural candidate but nothing validates it yet. | ❌ |
 | Credentials risk class | Every other gateway's secret is a revocable, scope-limited API key in an unencrypted jsonb column. A RAIL0 `private_key` is irrevocable on-chain custody — a leak means direct, unrecoverable fund loss. Storing it the same way "because that's convention" changes the risk calculus materially. | ❌ |
-| Webhook signature scheme unconfirmed | core-api has a precedented HMAC pattern (`PaymentSettingExternal`) that likely fits, but RAIL0's actual delivery header/encoding hasn't been verified against a real gateway. Compounded by RAIL0's one-webhook-per-topic model needing a secret *per topic*, not one global secret (see recommended approach, below). | ❌ |
+| Webhook signature scheme unconfirmed | core-api has a precedented HMAC pattern (`PaymentSettingExternal`) that likely fits, but RAIL0's actual delivery header/encoding hasn't been verified against a real gateway. (The per-topic-secret concern once listed here is obsolete: a subscription now carries a set of topics under one secret — see below.) | ❌ |
 | Void/Release asymmetry | RAIL0 distinguishes pre-capture `void` from remainder-returning `release`; core-api only has one `PaymentVoid` concept. Matters only if partial-capture-then-cancel becomes a real requirement. | ❌ |
 
 ## Recommended approach for the async merchant-signing gap
@@ -69,13 +69,13 @@ RAIL0 webhook topic → core-api action mapping:
 | `payments.failed` | `transaction.fail!`. |
 | `payments.disputed` / `payments.dispute_closed` | Optional for a first pass; hook exists in the framework (`Payment::EventHandler`) but no existing gateway's dispute handling was found to model against directly. |
 
-**Structural wrinkle this surfaces**: RAIL0's webhook model is *one webhook per topic*
-(`client.webhooks.create(name:, callback_url:, topic:)` takes a single topic, unlike Stripe's
-one endpoint subscribing to a list of event types via `enabled_events`). Supporting the
-mapping above means registering **multiple separate webhook subscriptions** per
-`PaymentSettingRail0` (one per topic above), each returning its **own** `shared_secret`. The
-credentials need to store a secret per topic (e.g. a small hash keyed by topic name), not one
-global secret — signature verification must look up the right secret per inbound webhook.
+**Structural wrinkle (obsolete)**: this analysis originally assumed RAIL0's webhook model
+was *one webhook per topic*, which would have meant one subscription — and one
+`shared_secret` — per topic above. That is no longer the case: a subscription carries a
+**set** of topics (`client.webhooks.create(name:, callback_url:, topics: [...])`) under one
+shared secret and one circuit breaker, like Stripe's `enabled_events`, and each delivery
+names the event in `X-Rail0-Topic`. One subscription with the topics above and one stored
+secret per `PaymentSettingRail0` is enough.
 
 Without this webhook-driven mechanism, the only alternative is pure polling, which doesn't
 resolve the reactive-timing half of the gap — it only tells core-api "check again later,"

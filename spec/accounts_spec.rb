@@ -31,4 +31,64 @@ RSpec.describe Rail0::Resources::Accounts do
       expect { client.accounts.get(account_id) }.to raise_error(Rail0::ApiError)
     end
   end
+
+  describe "#update" do
+    let(:path) { "#{BASE_URL}/accounts/#{account_id}" }
+    let(:profile) do
+      { id: account_id, name: "Merchant Ltd", email: "ops@merchant.example",
+        created_at: "2026-08-01T00:00:00Z", updated_at: "2026-09-29T00:00:00Z" }
+    end
+
+    it "PATCHes only the fields passed and returns the updated profile" do
+      stub = stub_request(:patch, path)
+             .with(body: { email: "ops@merchant.example" }.to_json)
+             .to_return(status: 200, body: profile.to_json,
+                        headers: { "Content-Type" => "application/json" })
+
+      result = client.accounts.update(account_id, email: "ops@merchant.example")
+
+      expect(stub).to have_been_requested
+      expect(result).to include(email: "ops@merchant.example")
+    end
+
+    it "sends name and email together" do
+      stub = stub_request(:patch, path)
+             .with(body: { name: "Merchant Ltd", email: "ops@merchant.example" }.to_json)
+             .to_return(status: 200, body: profile.to_json,
+                        headers: { "Content-Type" => "application/json" })
+
+      client.accounts.update(account_id, name: "Merchant Ltd", email: "ops@merchant.example")
+
+      expect(stub).to have_been_requested
+    end
+
+    # The gateway answers an empty PATCH with 400; refusing it here saves the round trip.
+    it "raises ArgumentError without sending anything when no field is given" do
+      expect { client.accounts.update(account_id) }.to raise_error(ArgumentError, /name or email/)
+      expect(a_request(:patch, path)).not_to have_been_made
+    end
+
+    # `active` is the operator's field on this route; an owner sending it gets 403.
+    it "does not expose the operator-only active field" do
+      expect { client.accounts.update(account_id, active: false) }.to raise_error(ArgumentError)
+    end
+
+    it "surfaces a taken name or email as a 409" do
+      stub_request(:patch, path)
+        .to_return(status: 409, body: { code: "conflict", title: "Already exists" }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      expect { client.accounts.update(account_id, name: "Taken") }
+        .to raise_error(Rail0::ApiError) { |e| expect(e.status).to eq(409) }
+    end
+
+    it "surfaces a deactivated account's 403 with its own code" do
+      stub_request(:patch, path)
+        .to_return(status: 403, body: { code: "account_deactivated" }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      expect { client.accounts.update(account_id, name: "X") }
+        .to raise_error(Rail0::ApiError) { |e| expect(e.error).to eq("account_deactivated") }
+    end
+  end
 end

@@ -101,7 +101,7 @@ module Rail0
       #   often the operation ran — a partial capture runs several times on one order — and
       #   `orders` is how many orders it touched.
       def breakdown(by:, **filters)
-        raise ArgumentError, "by is required (token, chain, mode or status)" if by.nil? || by.to_s.empty?
+        raise ArgumentError, "by is required (token, chain, mode, status or operation)" if by.nil? || by.to_s.empty?
 
         http.get("/analytics/breakdown#{build_query(**only_filters(filters), by: by)}")
       end

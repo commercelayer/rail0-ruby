@@ -45,7 +45,7 @@ module Rail0
       # @param active [Boolean, nil] Filter by active flag.
       # @param circuit_state [String, nil] Filter by circuit state ("closed" or "open").
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
-      # @param page [Integer, nil] Page number (1-based).
+      # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def list(topic: nil, active: nil, circuit_state: nil, sort: nil, page: nil, per_page: nil)
@@ -119,20 +119,48 @@ module Rail0
 
       # List delivery attempts for a webhook.
       # @param id [String] Webhook UUID.
-      # @param status [String, nil] Filter by delivery status ("pending", "delivered", "failed").
+      # @param status [String, nil] Filter by delivery status: "delivered" or "failed" only
+      #   (anything else, "pending" included, is a 400).
       # @param topic [String, nil] Filter by event topic.
-      # @param payment_id [String, nil] Filter by the payment the delivery is for.
+      # @param payment_id [String, nil] Filter by the payment the delivery is for: its UUID
+      #   or its rail0_id (0x…). One that names no payment matches nothing rather than erroring.
+      # @param response_code [String, Integer, nil] Filter by the subscriber's exact HTTP
+      #   response code (e.g. 500) — `status: "failed"` finds the failures, this says which.
       # @param since [String, nil] Only deliveries at/after this ISO-8601 time.
       # @param until_time [String, nil] Only deliveries at/before this ISO-8601 time (query key: "until").
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
-      # @param page [Integer, nil] Page number (1-based).
+      # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
-      def event_callbacks(id, status: nil, topic: nil, payment_id: nil, since: nil,
-                          until_time: nil, sort: nil, page: nil, per_page: nil)
-        query = build_query(status: status, topic: topic, payment_id: payment_id, since: since,
-                            until: until_time, sort: sort, page: page, per_page: per_page)
+      def event_callbacks(id, status: nil, topic: nil, payment_id: nil, response_code: nil,
+                          since: nil, until_time: nil, sort: nil, page: nil, per_page: nil)
+        query = build_query(status: status, topic: topic, payment_id: payment_id,
+                            response_code: response_code, since: since, until: until_time,
+                            sort: sort, page: page, per_page: per_page)
         http.get_list("/webhooks/#{id}/event_callbacks#{query}")
+      end
+
+      # Re-deliver one recorded delivery's exact payload
+      # (POST /webhooks/:id/event_callbacks/:callback_id/redeliver).
+      #
+      # The recovery lever for events lost while the circuit breaker was open: the
+      # gateway stores each delivery's payload and replays THAT payload verbatim — the
+      # same embedded event id, so a receiver that already processed it deduplicates —
+      # under a fresh timestamped signature.
+      #
+      # Delivery is ASYNC (the standard dispatcher: same SSRF checks, retries and circuit
+      # accounting), and the dispatcher drops a delivery for a webhook that is not active.
+      # So re-activate the webhook FIRST — {enable} if it was disabled, {reset_circuit} if
+      # the breaker opened — or the 202 below is answered and the replay silently dropped.
+      #
+      # A callback id that is malformed, unknown, belongs to another webhook, or was
+      # recorded before payloads were stored all answer 404.
+      #
+      # @param id [String] Webhook UUID.
+      # @param callback_id [String] The event callback's UUID (from {event_callbacks}).
+      # @return [Hash] `{ status: "queued" }` (HTTP 202).
+      def redeliver(id, callback_id)
+        http.post("/webhooks/#{id}/event_callbacks/#{callback_id}/redeliver", {})
       end
 
       # Delete a webhook. Returns HTTP 204.

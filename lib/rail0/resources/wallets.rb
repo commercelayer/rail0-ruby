@@ -27,14 +27,17 @@ module Rail0
       # @param token_symbol [String, nil] Restrict nested tokens to this symbol (e.g. "USDC").
       # @param active [Boolean, nil] Filter wallets by active flag.
       # @param default [Boolean, nil] Restrict nested holdings to the default one.
+      # @param token_active [Boolean, nil] Restrict nested holdings to this active status
+      #   (does not hide wallets). Omitted returns holdings whatever their flag.
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
-      # @param page [Integer, nil] Page number (1-based).
+      # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def list(account_id, chain_id: nil, token_symbol: nil, active: nil, default: nil,
-               sort: nil, page: nil, per_page: nil)
+               token_active: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(chain_id: chain_id, token_symbol: token_symbol, active: active,
-                            default: default, sort: sort, page: page, per_page: per_page)
+                            default: default, token_active: token_active,
+                            sort: sort, page: page, per_page: per_page)
         http.get_list("/accounts/#{account_id}/wallets#{query}")
       end
 
@@ -140,6 +143,11 @@ module Rail0
       # not the token's contract address. The gateway looks the holding up by
       # (wallet, token_id); the same applies to {enable_token} and {disable_token}.
       #
+      # The wallet's active DEFAULT holding cannot be removed: that would leave it with no
+      # preferred payment method and nothing saying so, and the gateway answers 422
+      # default_payment_method. Make another token the default first ({add_token} with
+      # `default: true` demotes this one in the same transaction), then remove it.
+      #
       # @return [nil]
       def remove_token(account_id, id_or_address, token_id)
         http.delete("/accounts/#{account_id}/wallets/#{id_or_address}/tokens/#{token_id}")
@@ -153,6 +161,9 @@ module Rail0
 
       # Disable an existing token holding without forgetting it — the holding (and
       # its default flag) survives, so re-enabling restores the previous setup.
+      #
+      # Like {remove_token}, refused with 422 default_payment_method for the wallet's
+      # active default holding — promote another token to default first.
       # @return [Hash] the token holding
       def disable_token(account_id, id_or_address, token_id)
         http.patch("/accounts/#{account_id}/wallets/#{id_or_address}/tokens/#{token_id}/disable")

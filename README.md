@@ -127,11 +127,16 @@ client.payments.submit_by_hash(rail0_id, "capture", { transaction_hash: "0x…" 
 | `charge_prepare` + `charge` | payee | One-shot authorize + capture; no escrow window |
 | `capture_prepare` + `capture` | payee | Move escrowed funds to the merchant (partial supported) |
 | `void_prepare` + `void` | payee | Cancel the hold, return funds to the payer (only before any capture) |
-| `release_prepare` + `release` | anyone | Return uncaptured escrow to the payer |
+| `release_prepare` + `release` | payer or payee | Return uncaptured escrow to the payer |
 | `refund_prepare` (phase 1+2) + `refund` | payee | Return captured funds to the payer via EIP-3009 |
 | `dispute_prepare` + `dispute` | payer | Open a dispute (signal-only) |
 | `close_dispute_prepare` + `close_dispute` | payer | Close an open dispute |
 | `dispute_submit_by_hash` / `close_dispute_submit_by_hash` | payer | Report a dispute tx the wallet already broadcast |
+
+`release` is the one merchant-side operation either participant may send: the contract
+accepts only the payer or the payee as its sender, and anyone else is refused with 422
+`release_submitter_not_a_party`. `release_prepare(id, from: "0x…")` builds the transaction
+for that sender; omitted, `from` is the signed-in caller.
 
 **Payment statuses:** `unsigned`, `signed`, `authorized`, `charged`, `captured`,
 `partially_captured`, `voided`, `released`, `refunded`, `expired` — plus
@@ -142,6 +147,13 @@ exhaustive `case` that raises on it.
 `expired` is a never-captured authorization whose window lapsed. It is **not** terminal:
 the escrow is still on-chain and `release` still works from it (closing the payment as
 `released`), so treating it as closed leaves the buyer's funds where they are.
+
+How a `release` settles depends on the balances it leaves, not on the order operations
+arrived in: a total release from `authorized` or `expired` closes the payment as
+`released`; a release that leaves **both** `capturable_amount` and `refundable_amount` at
+zero (say capture 40 → refund 40 → release 60) closes it as `refunded`; any other release
+returns the escrow but leaves the status unchanged, so a captured residual stays
+refundable and disputable.
 **Transaction statuses:** `pending`, `submitting`, `submitted`, `confirmed`, `failed`.
 
 ## Authentication (SIWE)
@@ -156,9 +168,9 @@ Two role rules are worth knowing before the first call, because both surface as 
 403 rather than a validation error:
 
 - `payments.create` requires the caller to **be the payer** (`payer_must_be_caller`);
-- the merchant operations (authorize, capture, charge, void, refund) are
-  **payee-only**, while `release` and the prepare steps accept either participant,
-  and `dispute`/`close_dispute` submits are **payer-only**.
+- the merchant operations (authorize, capture, charge, void, refund) and their prepare
+  steps are **payee-only**; `release` — prepare and submit — is the one that accepts
+  either participant; and `dispute`/`close_dispute` submits are **payer-only**.
 
 A wallet that signs *and broadcasts* in one step (MetaMask) reports the result by hash
 instead of handing over a signed transaction: `submit_by_hash` covers the merchant
@@ -227,9 +239,14 @@ logging — it says exactly which sessions died, which `revoked_all: true` canno
 ```ruby
 client.chains.list                                    # GET /blockchains (each chain's :contract is the active RAIL0 deployment)
 client.chains.list(network_type: "testnet", symbol: "ETH")
-client.tokens.list                                    # GET /tokens
+client.tokens.list                                    # GET /tokens — every token, retired ones included
 client.tokens.list(chain_id: 84532, symbol: "USDC")
+client.tokens.list(active: true)                      # what a NEW payment may use
 ```
+
+`tokens.list` without `active:` is the **historical** catalogue — a payment references its
+token forever, so a retired one must still resolve. A checkout picker should pass
+`active: true`: `payments.create` answers 422 `unknown_token` for a retired token.
 
 ## Health
 
@@ -240,6 +257,9 @@ client.health.get   # GET /health → { status:, api_version:, contract_version:
 ## Pagination
 
 Paginated calls return `{ data:, meta: }`. `meta` is `{ page:, per_page:, total:, total_pages:, links: }`.
+
+`page` is 1-based and bounded to 1..1,000,000 — a value outside is a 400, not an empty
+page. `per_page` defaults to 25 and is capped at 100.
 
 `total_pages` is **zero** for an empty collection — "no pages" is what there are, so a pager rendered off it renders none. `links` comes from the `Link` header: `:first` and `:last` are always present, `:prev` and `:next` only where they exist, and the hash is empty when the collection is. The URIs are **relative** (path + query) and resolve against the URL you requested — the gateway emits them that way so they cannot advertise the wrong scheme through a TLS-terminating proxy.
 
@@ -278,6 +298,8 @@ account id first. `id_or_address` accepts the wallet UUID or its 0x address.
 ```ruby
 client.wallets.list(account_id, chain_id: 84532, active: true)
 # => { data: [ { id:, address:, label:, active:, tokens: [...] } ], meta: { page:, per_page:, total: } }
+# chain_id / token_symbol / default / token_active narrow the NESTED holdings, never the wallets.
+client.wallets.list(account_id, token_active: true)
 
 client.wallets.get(account_id, id_or_address)
 client.wallets.update(account_id, id_or_address, label: "Renamed", active: false)
@@ -299,13 +321,14 @@ client.wallets.create(account_id, address: "0x…", **proof, label: "Treasury")
 ```
 
 The proof is **purpose-bound**, and a login proof will not do — the gateway pins
-each endpoint to one statement and refuses the other with 422
+each endpoint to one statement and refuses the others with 422
 `siwe_purpose_mismatch`:
 
 | Endpoint | Statement | Constant |
 |---|---|---|
 | `POST /auth` | `Sign in to RAIL0` | `Rail0::Resources::Auth::LOGIN_STATEMENT` |
 | `POST /accounts/:id/wallets` | `Add this wallet to your RAIL0 account` | `Rail0::Resources::Auth::WALLET_LINK_STATEMENT` |
+| `POST /auth/revoke_all` | `Sign out of RAIL0 everywhere` | `Rail0::Resources::Auth::REVOKE_ALL_STATEMENT` |
 
 That is a security boundary rather than a label: a login signature is handed out
 on every sign-in, so a wallet-link endpoint that accepted one would let anyone
@@ -326,6 +349,11 @@ re-enables it and answers 200 instead of creating a second row. The id passed to
 the other three is the **token's** UUID (`token_id` on the holding), not an id of the
 holding row and not the token address — the gateway looks the holding up by (wallet, token).
 
+The wallet's active **default** holding cannot be disabled or removed — that would leave it
+with no preferred payment method — and the gateway answers 422 `default_payment_method`.
+Make another token the default first (`add_token(..., default: true)` demotes the old one
+in the same transaction), then disable or remove it.
+
 ## Payments
 
 ```ruby
@@ -334,7 +362,9 @@ client.payments.create(params, idempotency_key: nil)  # or keyword fields
 # "idempotency_key_reused" (422) instead of returning the first payment.
 client.payments.get(id)
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
+client.payments.list(operation: "refund")            # payments with at least one refund transaction
 client.payments.transactions(id, operation: "capture")
+# `operation` on both takes Payments::TRANSACTION_OPERATIONS — dispute and close_dispute included.
 client.payments.redrive(id, transaction_id)           # re-enqueue a stuck broadcast
 # Offer `redrive` on the row's `redrivable` flag — the same predicate the gateway guards
 # the route with — and not on `status == "pending"`: a pending row holding no signed
@@ -426,9 +456,17 @@ client.webhooks.enable(id)
 client.webhooks.disable(id)
 client.webhooks.rotate_secret(id)    # returns a fresh shared_secret
 client.webhooks.reset_circuit(id)
-client.webhooks.event_callbacks(id, status: "failed")
+# status is "delivered" or "failed" only; payment_id takes a UUID or a rail0_id.
+client.webhooks.event_callbacks(id, status: "failed", response_code: "500")
+client.webhooks.redeliver(id, callback_id)  # 202 { status: "queued" } — replay one delivery
 client.webhooks.delete(id)           # 204
 ```
+
+`redeliver` replays a recorded delivery's exact payload — the same event id, so a receiver
+that already processed it deduplicates — under a fresh signature. It is the way back for
+events lost while the circuit breaker was open. Delivery is async and the dispatcher drops
+anything for an inactive webhook, so `enable` (if disabled) or `reset_circuit` (if the
+breaker opened) **first**, or the 202 is answered and the replay silently dropped.
 
 ### Verifying a delivery
 
@@ -471,9 +509,19 @@ digest with it. Comparison is constant-time.
 client.accounts.get(account_id)
 # => { id: "019f…", name: "Test Merchant", email: "merchant@rail0.test",
 #      created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" }
+
+# Update the same profile — only the fields passed are sent.
+client.accounts.update(account_id, email: "ops@merchant.example")
+client.accounts.update(account_id, name: "Merchant Ltd", email: "ops@merchant.example")
 ```
 
 `email` is in the response because the holder is this endpoint's only possible caller.
+
+`update` needs at least one of `name`/`email` (it raises `ArgumentError` before sending an
+empty PATCH, which the gateway would answer with 400). Both are unique across accounts, so
+a value another account holds answers **409**. It is a write on the account, so a
+deactivated wallet (403 `wallet_deactivated`) or account (403 `account_deactivated`) cannot
+make it. The gateway's `active` field is operator-only and not exposed here.
 The account's wallets are a collection under the same path (`client.wallets`), and
 buyer-facing discovery is `client.payment_methods`.
 
@@ -644,8 +692,7 @@ end
 ```
 
 **`error` is the only field to branch on.** It is the specific condition, read from the
-gateway's `code` and falling back to the older `error` sub-code and then to `status` (the
-wider family), so an older gateway still yields the most specific value it sent.
+gateway's `code`.
 
 `title` and `detail` come from the gateway's error catalogue, so the same condition always
 reads the same way whichever endpoint surfaced it; `detail` is written to be shown to a
@@ -684,8 +731,8 @@ Rail0::Client.new(
 ### Rate limits
 
 The gateway throttles two surfaces independently: the public, unauthenticated one **per
-IP** (100 requests / 60s by default — SIWE nonce + verify, `/payment_methods`, the
-catalog reads, `/health`) and everything authenticated **per session**, keyed on the
+IP** (100 requests / 60s by default — SIWE nonce + verify, `/auth/revoke_all`,
+`/payment_methods`, the catalog reads, `/health`) and everything authenticated **per session**, keyed on the
 JWT's subject (300 / 60s). Over budget it answers **429** with `code: "rate_limited"` and
 a `Retry-After`.
 
@@ -701,8 +748,8 @@ rescue Rail0::ApiError => e
 end
 ```
 
-Note what the number means: the gateway sends **the whole throttle period**, not the time
-left in the current window, so it is an upper bound on the wait rather than a measurement.
+Note what the number means: the gateway sends **the time left in the current window**
+(the same value as `RateLimit-Reset`), not the window's length, so it is the wait itself.
 
 `retry_on_429: true` makes the SDK do that waiting for you — Retry-After, clamped to
 `retry_after_cap`, plus a little jitter (see `Rail0::Backoff`; callers sharing one session
@@ -747,7 +794,7 @@ lib/rail0/
     wallets.rb         account-scoped wallet management (JWT)
     payments.rb        payment lifecycle + disputes
     disputes.rb        account-level dispute listing (JWT)
-    accounts.rb        the caller's own account profile (JWT)
+    accounts.rb        the caller's own account profile, read and update (JWT)
     webhooks.rb        webhook subscription management (JWT)
     analytics.rb       account-scoped payment analytics (JWT)
     query.rb           shared query-string helper

@@ -46,7 +46,8 @@ loop do
   state = client.payments.get(PAYMENT_ID)
   puts "  status: #{state[:status]}  refundable: #{state[:refundable_amount]}"
   break if state[:status] == "refunded" || state[:refundable_amount] == "0"
-  raise "refund failed: #{state[:last_error_code]}" if state[:status] == "failed"
+  # A failed attempt sets last_error_code; "failed" is not a payment status.
+  raise "refund failed: #{state[:last_error_code]}" if state[:last_error_code]
 
   sleep 2
 end
