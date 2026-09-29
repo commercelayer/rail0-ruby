@@ -500,6 +500,25 @@ client.webhooks.redeliver(id, callback_id)  # 202 { status: "queued" } — repla
 client.webhooks.delete(id)           # 204
 ```
 
+Every delivery's `payment` object carries `capturable_amount` (base units) and
+`authorization_expiry` (epoch seconds), whatever the topic. That is what makes
+`payments.authorization_expiring` actionable. The gateway sends it **once per payment**, a
+configurable notice (24h by default) before `authorization_expiry`, for a payment that can
+still be captured (`authorized`, `partially_captured`, `partially_refunded`) and still holds
+escrow. It is the last chance to capture; `payments.expired` says the chance has gone. Its
+`transaction` is `null`, and the time left is `authorization_expiry` minus the event's
+`emitted_at` (ISO-8601). There is no separate field for it because it would be stale on
+every retry:
+
+```ruby
+event = JSON.parse(raw, symbolize_names: true)
+if event[:topic] == "payments.authorization_expiring"
+  payment   = event[:payment]
+  secs_left = payment[:authorization_expiry] - Time.iso8601(event[:emitted_at]).to_i
+  # capture payment[:capturable_amount] (base units) within secs_left, or let it expire
+end
+```
+
 `redeliver` replays a recorded delivery's exact payload — the same event id, so a receiver
 that already processed it deduplicates — under a fresh signature. It is the way back for
 events lost while the circuit breaker was open. Delivery is async and the dispatcher drops

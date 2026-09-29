@@ -67,6 +67,7 @@ RAIL0 webhook topic → core-api action mapping:
 | `payments.voided` | Settle `PaymentVoid`. |
 | `payments.refunded` | Settle `PaymentRefund`. |
 | `payments.failed` | `transaction.fail!`. |
+| `payments.authorization_expiring` | Optional: capture (or alert on) the uncaptured remainder before the authorization lapses. The payload's `payment` carries `capturable_amount` and `authorization_expiry`; sent once per payment. |
 | `payments.disputed` / `payments.dispute_closed` | Optional for a first pass; hook exists in the framework (`Payment::EventHandler`) but no existing gateway's dispute handling was found to model against directly. |
 
 **Structural wrinkle (obsolete)**: this analysis originally assumed RAIL0's webhook model

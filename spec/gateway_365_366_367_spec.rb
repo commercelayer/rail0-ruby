@@ -34,6 +34,24 @@ RSpec.describe "gateway alignment (#365, #366, #367)" do
     end
   end
 
+  describe "#366 — payments.authorization_expiring" do
+    it "is a subscribable topic" do
+      expect(Rail0::Resources::Webhooks::TOPICS).to include("payments.authorization_expiring")
+    end
+
+    it "is sent in the topics of a create" do
+      stub = stub_request(:post, "#{BASE_URL}/webhooks")
+             .with(body: { name: "expiry", callback_url: "https://merchant.example/hook",
+                           topics: ["payments.authorization_expiring"] })
+             .to_return(status: 201, body: WEBHOOK_WITH_SECRET.to_json, headers: json)
+
+      client.webhooks.create(name: "expiry", callback_url: "https://merchant.example/hook",
+                             topics: ["payments.authorization_expiring"])
+
+      expect(stub).to have_been_requested
+    end
+  end
+
   describe "#367 — decimals and in_flight on payments" do
     it "carries both on a list row" do
       stub_list("/payments", [PAYMENT_DETAIL.merge(in_flight: true)])
