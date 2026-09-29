@@ -23,7 +23,7 @@ module Rail0
       # List the account's disputes.
       # @param status [String, nil] Filter by "open" or "closed".
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
-      # @param page [Integer, nil] Page number (1-based).
+      # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
       def list(status: nil, sort: nil, page: nil, per_page: nil)

@@ -20,7 +20,9 @@ module Rail0
       # @param symbol [String, nil] Filter by native symbol (case-insensitive, e.g. "ETH").
       # @return [Array<Hash>] chain_id, name, native_symbol, network_type, explorer_url,
       #   required_confirmations, finality_tag (the settlement rule: the tag where the
-      #   chain serves one, the count only where it does not)
+      #   chain serves one, the count only where it does not), and contract — the chain's
+      #   active RAIL0 deployment as `{ address:, version:, deployed_at: }` (what holds
+      #   the money; nullable in principle, present in practice)
       def list(network_type: nil, symbol: nil)
         http.get("/blockchains#{build_query(network_type: network_type, symbol: symbol)}")
       end
