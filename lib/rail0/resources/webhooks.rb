@@ -25,6 +25,7 @@ module Rail0
         payments.voided
         payments.released
         payments.refunded
+        payments.authorization_expiring
         payments.expired
         payments.failed
         payments.disputed

@@ -237,12 +237,29 @@ logging — it says exactly which sessions died, which `revoked_all: true` canno
 ## Catalog (public)
 
 ```ruby
-client.chains.list                                    # GET /blockchains (each chain's :contract is the active RAIL0 deployment)
+client.chains.list                                    # GET /blockchains (each chain's :contract is the active RAIL0 deployment, :settlement its measured confirm time)
 client.chains.list(network_type: "testnet", symbol: "ETH")
 client.tokens.list                                    # GET /tokens — every token, retired ones included
 client.tokens.list(chain_id: 84532, symbol: "USDC")
 client.tokens.list(active: true)                      # what a NEW payment may use
 ```
+
+Each chain's `settlement` is how long an operation on it has taken to confirm **on this
+gateway**, end to end (the chain's finality lag plus the gateway/indexer pipeline):
+`{ p50_seconds:, p90_seconds:, sample_size:, window_days: }`, percentiles of broadcast →
+confirmation over the trailing `window_days`, in whole seconds rounded up. It is always
+present, but the percentiles are `nil` below the gateway's minimum sample (20), so size a
+polling deadline from it with a fixed fallback:
+
+```ruby
+FALLBACK = 15 * 60 # seconds
+chain    = client.chains.list.find { |c| c[:chain_id] == 84532 }
+p90      = chain.dig(:settlement, :p90_seconds)
+deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + (p90 ? [3 * p90, FALLBACK].max : FALLBACK)
+```
+
+It is a trailing-window measurement (a capacity figure, cached by the gateway for 10
+minutes), not a promise, so treat it as a hint and never as a timeout that fails a payment.
 
 `tokens.list` without `active:` is the **historical** catalogue — a payment references its
 token forever, so a retired one must still resolve. A checkout picker should pass
@@ -362,8 +379,10 @@ client.payments.create(params, idempotency_key: nil)  # or keyword fields
 # "idempotency_key_reused" (422) instead of returning the first payment.
 client.payments.get(id)
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
+client.payments.list(status: %w[authorized expired])  # any of several states → ?status=authorized,expired
 client.payments.list(operation: "refund")            # payments with at least one refund transaction
 client.payments.transactions(id, operation: "capture")
+client.payments.transactions(id, status: %w[submitting submitted])  # on its way to the chain
 # `operation` on both takes Payments::TRANSACTION_OPERATIONS — dispute and close_dispute included.
 client.payments.redrive(id, transaction_id)           # re-enqueue a stuck broadcast
 # Offer `redrive` on the row's `redrivable` flag — the same predicate the gateway guards
@@ -387,10 +406,29 @@ client.disputes.list(status: "closed", sort: "-opened_at")
 `payments.list`/`transactions`/`disputes` and `disputes.list` return a paginated
 `{ data:, meta: { page:, per_page:, total: } }` envelope.
 
-Every payment row carries `chain_id`, list rows included. You need it to display
-an amount: `amount` is in base units and the token's decimals resolve from
-`token` **plus** its chain — an address alone identifies a token only within one
-chain — so a listing never needs a `get(id)` per row to render totals.
+`status:` on `payments.list` and `payments.transactions` takes one value or an Array; an
+Array is sent comma-separated and matches **any** of the listed states. An empty Array is
+dropped like `nil` (no filter). An unknown value raises `Rail0::ApiError` 400
+`validation_failed`, naming it. Any query filter given an Array is sent the same way.
+
+Every payment row carries `chain_id` and `decimals`, list rows included (and the payment
+embedded in `disputes.list`). Amounts (`amount`, `capturable_amount`, `refundable_amount`)
+are in base units: divide by `10**decimals` to render them, with no `tokens.list` join and no
+`get(id)` per row. `decimals` is `nil` only when the gateway cannot resolve the token (a
+contract it has not loaded, a token deleted outright). Fall back to `tokens.list` then,
+matching on `token` **plus** `chain_id`, since an address alone identifies a token only
+within one chain.
+
+```ruby
+BigDecimal(row[:amount]) / (10**row[:decimals])  # "100000000", 6 → 100.0
+```
+
+Every payment row also carries `in_flight`: `true` while one of its transactions is on its
+way to the chain, meaning `submitting`, `submitted`, or `pending` holding its signed
+transaction (the `redrivable` rows). A `pending` row still waiting for its signature does not
+count, nor do `confirmed`/`failed` rows. While it is true the balances are about to move, so
+disable further actions on the payment. It comes on list rows too, which embed no
+transactions, so a bulk action can skip busy rows without a `get(id)` each.
 
 ### Refund (two-phase EIP-3009)
 
@@ -460,6 +498,25 @@ client.webhooks.reset_circuit(id)
 client.webhooks.event_callbacks(id, status: "failed", response_code: "500")
 client.webhooks.redeliver(id, callback_id)  # 202 { status: "queued" } — replay one delivery
 client.webhooks.delete(id)           # 204
+```
+
+Every delivery's `payment` object carries `capturable_amount` (base units) and
+`authorization_expiry` (epoch seconds), whatever the topic. That is what makes
+`payments.authorization_expiring` actionable. The gateway sends it **once per payment**, a
+configurable notice (24h by default) before `authorization_expiry`, for a payment that can
+still be captured (`authorized`, `partially_captured`, `partially_refunded`) and still holds
+escrow. It is the last chance to capture; `payments.expired` says the chance has gone. Its
+`transaction` is `null`, and the time left is `authorization_expiry` minus the event's
+`emitted_at` (ISO-8601). There is no separate field for it because it would be stale on
+every retry:
+
+```ruby
+event = JSON.parse(raw, symbolize_names: true)
+if event[:topic] == "payments.authorization_expiring"
+  payment   = event[:payment]
+  secs_left = payment[:authorization_expiry] - Time.iso8601(event[:emitted_at]).to_i
+  # capture payment[:capturable_amount] (base units) within secs_left, or let it expire
+end
 ```
 
 `redeliver` replays a recorded delivery's exact payload — the same event id, so a receiver

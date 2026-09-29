@@ -68,7 +68,9 @@ PAYMENT_DETAIL = {
   payee: PAYEE,
   token: TOKEN,
   chain_id: 84532,
+  decimals: 6,
   disputed: false,
+  in_flight: false,
   transactions: []
 }.freeze
 
@@ -147,7 +149,8 @@ DISPUTE = {
 
 # Blockchain::Restricted / Token::Restricted
 BLOCKCHAIN = { chain_id: 84532, name: "Base Sepolia", native_symbol: "ETH",
-               network_type: "testnet", explorer_url: "https://sepolia.basescan.org" }.freeze
+               network_type: "testnet", explorer_url: "https://sepolia.basescan.org",
+               settlement: { p50_seconds: 11, p90_seconds: 19, sample_size: 20, window_days: 7 } }.freeze
 TOKEN_INFO = { chain_id: 84532, symbol: "USDC", address: TOKEN, decimals: 6 }.freeze
 
 # Health

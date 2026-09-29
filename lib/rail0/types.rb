@@ -133,6 +133,22 @@ module Rail0
       :required_confirmations,  # Integer — Confirmations this gateway waits for before treating a transaction as settled. The FALLBACK rule: where the chain serves a finality tag (see finality_tag) that tag governs instead, so a client showing this number on such a chain is describing a rule that is not in force.
       :finality_tag,            # String — The block tag the chain calls settled (`safe`, `finalized`), when it serves one — and what the gateway actually gates on. Null where the chain serves none, in which case required_confirmations is counted.
       :contract,                # ChainContract
+      :settlement,              # BlockchainSettlement
+      keyword_init: true
+    )
+
+    # How long an operation on this chain has taken to settle ON THIS GATEWAY: percentiles of broadcast
+    # (`submitted_at`) to confirmation (`confirmed_at`) over the confirmed transactions of the trailing
+    # `window_days`. End-to-end — the chain's finality lag plus the gateway/indexer pipeline — so it is
+    # what a client actually waits for, not the chain's finality. A measurement, not a guarantee: use it
+    # as a wait-deadline hint (e.g. a small multiple of `p90_seconds`) and keep a fixed fallback for
+    # when it is null. Deliberately a long-window capacity figure, not a live alarm (#289). Always
+    # present; the percentiles are null when `sample_size` is below the gateway's minimum (20).
+    BlockchainSettlement = Struct.new(
+      :p50_seconds,  # Integer — Median settlement time, whole seconds rounded up. Null below the minimum sample.
+      :p90_seconds,  # Integer — 90th-percentile settlement time, whole seconds rounded up — the figure to size a deadline from. Null below the minimum sample.
+      :sample_size,  # Integer — Confirmed transactions measured in the window (0 when none).
+      :window_days,  # Integer — The trailing window the figures cover, in days.
       keyword_init: true
     )
 
@@ -188,7 +204,8 @@ module Rail0
       keyword_init: true
     )
 
-    # Base persisted payment fields, plus the `chain_id` of the payment's deployment.
+    # Base persisted payment fields, plus the `chain_id` of the payment's deployment, its token's
+    # `decimals`, and whether a transaction is `in_flight`.
     Payment = Struct.new(
       :id,                    # String
       :contract_id,           # String
@@ -203,11 +220,13 @@ module Rail0
       :payer,                 # String
       :payee,                 # String
       :token,                 # String
+      :decimals,              # Decimals of the payment's token: divide `amount`, `capturable_amount` and `refundable_amount` (base units) by 10^decimals to render them, with no GET /tokens join on `token` + `chain_id`. Resolved from the gateway's in-memory chain catalogue, retired tokens and archived contract versions included. Null only when the gateway cannot resolve the token (a contract it has not loaded, a token deleted outright) — fall back to GET /tokens then.
       :authorization_expiry,  # Integer
       :refund_expiry,         # Integer
       :escrow_stranded,       # Boolean — True exactly inside the stranded-escrow window (#233): a partial capture has permanently ruled void out, and release only opens at authorization_expiry — so no verb can return the buyer's uncaptured escrow until then. Mirrors RAIL0.sol; the gateway names the window, it cannot shorten it.
       :escrow_returnable_at,  # String — When the stranded escrow becomes returnable (release opens) — the authorization expiry as ISO-8601. Null whenever nothing is stranded, so presence alone is the signal.
       :disputed,              # Boolean — True while an open dispute exists.
+      :in_flight,             # Boolean — True while one of the payment's transactions is on its way to the chain and not yet settled: status `submitting`, `submitted`, or `pending` holding its signed transaction (the `redrivable` rows — signed and handed over, broadcast not yet sent). A `pending` row still awaiting its signature (an unfinished prepare) does not count, nor do `confirmed`/`failed`. While true the mirrored balances are about to move, so a client should disable further actions on the payment. Carried by list rows too, which embed no transactions; computed for a whole page in one query.
       :last_error_code,       # Decoded reason of the last failed on-chain attempt; null once the payment makes forward progress. Non-null means the latest attempt failed.
       :last_error_message,    # Human-readable form of last_error_code.
       :description,
