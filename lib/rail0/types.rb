@@ -173,16 +173,6 @@ module Rail0
       keyword_init: true
     )
 
-    # A wallet's token holding, with the wallet, token, and blockchain nested via their own schemas.
-    WalletToken = Struct.new(
-      :default,     # Boolean
-      :active,      # Boolean
-      :wallet,      # Wallet
-      :token,       # Token
-      :blockchain,  # Blockchain
-      keyword_init: true
-    )
-
     # A wallet's token holding as nested under its wallet (GET /accounts/:id/wallets): the token plus
     # this wallet's per-token flags, without re-nesting the wallet.
     WalletTokenHolding = Struct.new(
