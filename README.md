@@ -366,10 +366,12 @@ re-enables it and answers 200 instead of creating a second row. The id passed to
 the other three is the **token's** UUID (`token_id` on the holding), not an id of the
 holding row and not the token address — the gateway looks the holding up by (wallet, token).
 
-The wallet's active **default** holding cannot be disabled or removed — that would leave it
-with no preferred payment method — and the gateway answers 422 `default_payment_method`.
-Make another token the default first (`add_token(..., default: true)` demotes the old one
-in the same transaction), then disable or remove it.
+While the wallet accepts other tokens, its active **default** holding cannot be disabled or
+removed — that would leave it with no preferred payment method — and the gateway answers
+422 `default_payment_method`. Make another token the default first
+(`add_token(..., default: true)` demotes the old one in the same transaction), then disable
+or remove it. The **last** active holding can be disabled even as the default: the wallet
+then accepts nothing, and the next holding enabled becomes the default.
 
 ## Payments
 
