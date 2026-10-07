@@ -544,6 +544,51 @@ RSpec.describe Rail0::Client do
     end
   end
 
+  # Description-only edit (rail0-gateway#373): nil must reach the wire as JSON null,
+  # not be dropped like the optional keys of webhooks.update.
+  describe "payments.update" do
+    let(:path) { "/payments/#{PAYMENT_ID}" }
+
+    it "PATCHes the description and returns the payment" do
+      stub = stub_request(:patch, "#{BASE_URL}#{path}")
+             .with(body: { description: "Order #42" }.to_json)
+             .to_return(status: 200, body: PAYMENT_DETAIL.merge(description: "Order #42").to_json,
+                        headers: json_headers)
+      result = client.payments.update(PAYMENT_ID, description: "Order #42")
+      expect(stub).to have_been_requested
+      expect(result[:description]).to eq("Order #42")
+      expect(result[:status]).to eq("authorized")
+    end
+
+    it "sends JSON null to clear the description" do
+      stub = stub_request(:patch, "#{BASE_URL}#{path}")
+             .with(body: '{"description":null}')
+             .to_return(status: 200, body: PAYMENT_DETAIL.merge(description: nil).to_json,
+                        headers: json_headers)
+      expect(client.payments.update(PAYMENT_ID, description: nil)[:description]).to be_nil
+      expect(stub).to have_been_requested
+    end
+
+    it "requires the description keyword" do
+      expect { client.payments.update(PAYMENT_ID) }.to raise_error(ArgumentError, /description/)
+    end
+
+    it "surfaces a 422 over-length description as an ApiError" do
+      stub_patch(path, { code: "validation_failed", detail: "description is too long" }, status: 422)
+      expect { client.payments.update(PAYMENT_ID, description: "x" * 256) }
+        .to raise_error(Rail0::ApiError) do |err|
+          expect(err.status).to eq(422)
+          expect(err.error).to eq("validation_failed")
+        end
+    end
+
+    it "surfaces a non-participant's 404 as an ApiError" do
+      stub_patch(path, { code: "not_found", detail: "payment not found" }, status: 404)
+      expect { client.payments.update(PAYMENT_ID, description: "x") }
+        .to raise_error(Rail0::ApiError) { |e| expect(e.status).to eq(404) }
+    end
+  end
+
   describe "payments.list" do
     it "returns a paginated envelope and forwards filters" do
       stub = stub_list("/payments?status=authorized&disputed=false&chain_id=84532",
