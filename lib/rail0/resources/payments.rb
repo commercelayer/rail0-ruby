@@ -102,6 +102,24 @@ module Rail0
         http.get("/payments/#{segment(id)}")
       end
 
+      # Set or clear a payment's description (PATCH /payments/{id}).
+      #
+      # The description is the only field this route edits: it is off-chain metadata, so
+      # it can change at any status, settled payments included. Only a participant (the
+      # payer or the payee) may edit it — a non-participant gets the same 404 as an unknown
+      # id, and a deactivated caller wallet a 403 `wallet_deactivated`.
+      #
+      # +description:+ is required, and is always sent: passing +nil+ sends JSON +null+,
+      # which clears it (as does +""+). Over 255 characters is a 422.
+      # (rail0-gateway#373)
+      #
+      # @param id [String] Payment UUID or rail0_id.
+      # @param description [String, nil] The new description; +nil+ or +""+ clears it.
+      # @return [Hash] The updated payment, the same shape {get} returns.
+      def update(id, description:)
+        http.patch("/payments/#{segment(id)}", { description: description })
+      end
+
       # List on-chain transactions for a payment.
       # @param id [String] Payment UUID or rail0_id.
       # @param operation [String, nil] Filter by operation (see {TRANSACTION_OPERATIONS} —

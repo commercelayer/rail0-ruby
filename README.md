@@ -378,6 +378,10 @@ client.payments.create(params, idempotency_key: nil)  # or keyword fields
 # Reusing a key for DIFFERENT terms raises Rail0::ApiError with code
 # "idempotency_key_reused" (422) instead of returning the first payment.
 client.payments.get(id)
+client.payments.update(id, description: "Order #42")  # → the payment, same shape as get
+client.payments.update(id, description: nil)          # nil (or "") clears it
+# The description is the only editable field: off-chain, so any status, settled included.
+# Payer or payee only (a non-participant gets 404); over 255 characters is a 422.
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
 client.payments.list(status: %w[authorized expired])  # any of several states → ?status=authorized,expired
 client.payments.list(operation: "refund")            # payments with at least one refund transaction
