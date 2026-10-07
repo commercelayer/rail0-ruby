@@ -143,10 +143,12 @@ module Rail0
       # not the token's contract address. The gateway looks the holding up by
       # (wallet, token_id); the same applies to {enable_token} and {disable_token}.
       #
-      # The wallet's active DEFAULT holding cannot be removed: that would leave it with no
-      # preferred payment method and nothing saying so, and the gateway answers 422
-      # default_payment_method. Make another token the default first ({add_token} with
-      # `default: true` demotes this one in the same transaction), then remove it.
+      # While the wallet accepts other tokens, its active DEFAULT holding cannot be
+      # removed: that would leave it with no preferred payment method and nothing saying
+      # so, and the gateway answers 422 default_payment_method. Make another token the
+      # default first ({add_token} with `default: true` demotes this one in the same
+      # transaction), then remove it. The LAST active holding can be removed even as the
+      # default: the wallet then accepts nothing, and the gateway clears the flag with it.
       #
       # @return [nil]
       def remove_token(account_id, id_or_address, token_id)
@@ -159,11 +161,13 @@ module Rail0
         http.patch("#{wallet_path(account_id, id_or_address)}/tokens/#{segment(token_id)}/enable")
       end
 
-      # Disable an existing token holding without forgetting it — the holding (and
-      # its default flag) survives, so re-enabling restores the previous setup.
+      # Disable an existing token holding without forgetting it — the holding survives,
+      # so re-enabling restores it; the first holding enabled on a wallet that accepts
+      # nothing becomes its default again.
       #
       # Like {remove_token}, refused with 422 default_payment_method for the wallet's
-      # active default holding — promote another token to default first.
+      # active default holding while other holdings are active — promote another token to
+      # default first. The last active holding can be disabled, default flag and all.
       # @return [Hash] the token holding
       def disable_token(account_id, id_or_address, token_id)
         http.patch("#{wallet_path(account_id, id_or_address)}/tokens/#{segment(token_id)}/disable")
