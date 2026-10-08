@@ -45,7 +45,7 @@ RSpec.describe "gateway alignment" do
              .with(headers: { "Idempotency-Key" => "k-2" })
              .to_return(status: 201, body: { id: "tx-2" }.to_json, headers: json)
 
-      client.payments.dispute_prepare(payment_id, idempotency_key: "k-2")
+      client.payments.dispute_prepare(payment_id, reason: "not_received", idempotency_key: "k-2")
 
       expect(stub).to have_been_requested
     end

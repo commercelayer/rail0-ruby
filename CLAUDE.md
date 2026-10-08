@@ -65,7 +65,7 @@ When a change in one repo affects the contract, the indexer, or any SDK, flag it
 - `bundle exec rake` — run the full test suite (default task, wraps rspec)
 - `bundle exec rspec spec/client_spec.rb` — run one spec file
 - `bundle exec rspec spec/client_spec.rb:42` — run a single example by line
-- `ruby gen/generate.rb` — regenerate `lib/rail0/types.rb` from the gateway OpenAPI schema (defaults to `../rail0-gateway/docs/openapi.json`, override with `RAIL0_SCHEMA_PATH`)
+- `ruby gen/generate.rb` — regenerate `lib/rail0/types.rb` and `lib/rail0/dispute_reasons.rb` from the gateway OpenAPI schema (defaults to `../rail0-gateway/docs/openapi.json`, override with `RAIL0_SCHEMA_PATH`)
 
 ## Architecture
 
@@ -74,4 +74,5 @@ When a change in one repo affects the contract, the indexer, or any SDK, flag it
 - On-chain ops follow a two-phase `prepare`/`submit` pattern implemented in `resources/payments.rb`: `<op>_prepare` returns an `unsigned_transaction`, the caller signs it via `Rail0::Signing`, then `<op>` submits the signed tx (HTTP 202, confirms async — poll `payments.get`). Every named wrapper (`authorize`, `capture`, `void`, `release`, `refund`, `dispute`, `close_dispute`) is a thin delegate over the generic `prepare`/`submit`/`submit_by_hash` — add new on-chain ops the same way rather than as a parallel path.
 - `Rail0::Signing` (`lib/rail0/signing.rb`) and `siwe-rb` (used by `auth.login`) are lazy-loaded — `require "rail0"` must keep working without the `eth`/`siwe-rb` gems present.
 - `lib/rail0/types.rb` is generated, reference-only documentation (Structs) — never hand-edit it; regenerate via `gen/generate.rb`.
+- `lib/rail0/dispute_reasons.rb` (`Rail0::DisputeReasons`) is generated too, from the `DisputeOpenReason` / `DisputeCloseReason` / `DisputeSystemCloseReason` schemas — runtime constants plus their lookups; edit the lookups in `gen/generate.rb`, never in the generated file.
 - Non-2xx responses raise `Rail0::ApiError` (`status`/`error`/`message`) from `request.rb`; resource methods let it propagate rather than rescuing it.

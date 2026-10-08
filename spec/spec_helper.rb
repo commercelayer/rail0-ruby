@@ -142,9 +142,11 @@ WEBHOOK_WITH_SECRET = WEBHOOK.merge(shared_secret: "whsec_test_abc123").freeze
 # Dispute::Restricted
 DISPUTE = {
   id: "018e7777-8888-7abc-9def-012345678907", payment_id: PAYMENT_UUID, status: "open",
-  reason: "0x0000000000000000000000000000000000000000000000000000000000000000",
+  reason: "0x8b8e446d6f906b670526e73bf5502f1db64b2150c42360febf9dec0d075a28f9",
+  reason_code: "not_received", reason_description: "Goods or service not received",
   opened_block: 123, opened_at: "2026-07-02T00:00:00Z",
-  closed_by: nil, close_reason: nil, closed_block: nil, closed_at: nil
+  closed_by: nil, close_reason: nil, close_reason_code: nil, close_reason_description: nil,
+  closed_block: nil, closed_at: nil
 }.freeze
 
 # Blockchain::Restricted / Token::Restricted

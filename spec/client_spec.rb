@@ -652,7 +652,11 @@ RSpec.describe Rail0::Client do
     it "lists a payment's dispute history" do
       stub_list("/payments/#{PAYMENT_ID}/disputes?status=open", [DISPUTE])
       result = client.payments.disputes(PAYMENT_ID, status: "open")
-      expect(result[:data].first[:status]).to eq("open")
+      row = result[:data].first
+      expect(row[:status]).to eq("open")
+      expect(row[:reason_code]).to eq("not_received")
+      expect(row[:reason_description]).to eq("Goods or service not received")
+      expect(row[:close_reason_code]).to be_nil
     end
   end
 
@@ -661,6 +665,9 @@ RSpec.describe Rail0::Client do
   describe "disputes.list" do
     it "returns a paginated envelope with the embedded payment and forwards status" do
       dispute = DISPUTE.merge(status: "closed", closed_by: "payee",
+                              close_reason: Rail0::DisputeReasons::SYSTEM.first.bytes32,
+                              close_reason_code: "full_refund",
+                              close_reason_description: "Closed automatically by a full refund",
                               payment: PAYMENT_DETAIL.merge(status: "refunded"))
       stub = stub_list("/disputes?status=closed", [dispute])
       result = client.disputes.list(status: "closed")
@@ -668,6 +675,8 @@ RSpec.describe Rail0::Client do
       row = result[:data].first
       expect(row[:status]).to eq("closed")
       expect(row[:payment][:rail0_id]).to eq(PAYMENT_ID)
+      expect(row[:close_reason_code]).to eq("full_refund")
+      expect(row[:close_reason_description]).to eq("Closed automatically by a full refund")
     end
   end
 
@@ -766,16 +775,44 @@ RSpec.describe Rail0::Client do
   # ── Payments: disputes (payer-driven) ──────────────────────────────────────
 
   describe "dispute operations" do
-    it "dispute_prepare omits reason by default and includes it when given" do
-      no_reason = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/prepare")
-                  .with(body: {}).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
-      client.payments.dispute_prepare(PAYMENT_ID)
-      expect(no_reason).to have_been_requested
+    # The gateway made `reason` required (rail0-gateway#381): a call without it must fail in
+    # Ruby, before any request, rather than 400 on the wire.
+    it "dispute_prepare requires reason" do
+      expect { client.payments.dispute_prepare(PAYMENT_ID) }.to raise_error(ArgumentError, /reason/)
+      expect { client.payments.close_dispute_prepare(PAYMENT_ID) }.to raise_error(ArgumentError, /reason/)
+      expect(a_request(:post, /dispute/)).not_to have_been_made
+    end
 
-      with_reason = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/prepare")
-                    .with(body: { reason: "0x#{'0' * 64}" }).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
-      client.payments.dispute_prepare(PAYMENT_ID, reason: "0x#{'0' * 64}")
-      expect(with_reason).to have_been_requested
+    it "dispute_prepare sends a code, a symbol code or a bytes32 as given" do
+      bytes32 = Rail0::DisputeReasons.find(:open, "not_as_described").bytes32
+      ["not_received", :duplicate, bytes32].each do |reason|
+        stub = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/prepare")
+               .with(body: { reason: reason.to_s }).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+        client.payments.dispute_prepare(PAYMENT_ID, reason: reason)
+        expect(stub).to have_been_requested
+      end
+    end
+
+    it "close_dispute_prepare sends its reason" do
+      stub = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/close/prepare")
+             .with(body: { reason: "withdrawn" }).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+      client.payments.close_dispute_prepare(PAYMENT_ID, reason: :withdrawn)
+      expect(stub).to have_been_requested
+    end
+
+    it "surfaces unknown_dispute_reason with its hint" do
+      stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/close/prepare")
+        .to_return(status: 422, headers: json_headers,
+                   body: { code: "unknown_dispute_reason", title: "Unknown dispute reason",
+                           detail: "The reason is not one of the dispute reasons this operation accepts." }.to_json)
+      error = begin
+        client.payments.close_dispute_prepare(PAYMENT_ID, reason: "full_refund")
+      rescue Rail0::ApiError => e
+        e
+      end
+      expect(error.status).to eq(422)
+      expect(error.error).to eq("unknown_dispute_reason")
+      expect(Rail0.describe_error(error.error)).to include("full_refund is system-only")
     end
 
     it "dispute submits the signed tx" do
@@ -786,7 +823,7 @@ RSpec.describe Rail0::Client do
     it "close_dispute_prepare / close_dispute hit the /dispute/close paths" do
       stub_post("/payments/#{PAYMENT_ID}/dispute/close/prepare", PREPARE_RESPONSE)
       stub_post("/payments/#{PAYMENT_ID}/dispute/close", SUBMIT_RESPONSE, status: 202)
-      expect(client.payments.close_dispute_prepare(PAYMENT_ID)[:operation]).to eq("authorize")
+      expect(client.payments.close_dispute_prepare(PAYMENT_ID, reason: "withdrawn")[:operation]).to eq("authorize")
       expect(client.payments.close_dispute(PAYMENT_ID, { signed_transaction: "0x02" })[:status]).to eq("submitting")
     end
   end
