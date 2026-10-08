@@ -212,6 +212,13 @@ reason_lines << "    Reason = Struct.new(:code, :description, :bytes32, keyword_
 reason_lines << ""
 reason_lines << "    # What the gateway reports as the description of a bytes32 outside the dictionary."
 reason_lines << "    UNRECOGNISED_DESCRIPTION = \"Unrecognised reason\""
+reason_lines << ""
+reason_lines << "    # What the gateway reports as the description of a dispute opened or closed with no"
+reason_lines << "    # reason — the zero bytes32 on-chain (rail0-gateway#382)."
+reason_lines << "    NO_REASON_DESCRIPTION = \"No reason given\""
+reason_lines << ""
+reason_lines << "    # The all-zero bytes32: what the contract stores when no reason is given."
+reason_lines << "    ZERO_BYTES32 = \"0x#{'0' * 64}\""
 DISPUTE_REASON_SCHEMAS.each do |const, (schema_name, comment)|
   reason_lines << ""
   reason_lines << "    # #{comment}"
@@ -261,21 +268,37 @@ end
       all(kind).find { |r| r.code == needle || r.bytes32.casecmp?(needle) }
     end
 
-    # Whether the dispute prepare of +kind+ (:open or :close) would accept +value+.
-    # :system is never accepted from a caller, so it always answers false.
+    # Whether +value+ means "no reason": nil, a blank string, or the zero bytes32. The
+    # reason is optional on both prepares, and the gateway records any of these as the
+    # zero bytes32.
+    # @param value [String, Symbol, nil]
+    # @return [Boolean]
+    def self.none?(value)
+      needle = value.to_s.strip
+      needle.empty? || needle.casecmp?(ZERO_BYTES32)
+    end
+
+    # Whether the dispute prepare of +kind+ (:open or :close) would accept +value+:
+    # no reason at all (see {.none?}), or a code / bytes32 from that list. :system is
+    # never accepted from a caller, so it always answers false.
     # @param kind [Symbol, String]
     # @param value [String, Symbol, nil]
     # @return [Boolean]
     def self.valid?(kind, value)
-      kind.to_sym != :system && !find(kind, value).nil?
+      return false if kind.to_sym == :system
+
+      none?(value) || !find(kind, value).nil?
     end
 
-    # The description the gateway would give +value+ as a +kind+ reason, or
-    # {UNRECOGNISED_DESCRIPTION} when it is not in that list.
+    # The description the gateway would give +value+ as a +kind+ reason:
+    # {NO_REASON_DESCRIPTION} for no reason (see {.none?}), the entry's description
+    # when it is in that list, else {UNRECOGNISED_DESCRIPTION}.
     # @param kind [Symbol, String]
     # @param value [String, Symbol, nil]
     # @return [String]
     def self.description_for(kind, value)
+      return NO_REASON_DESCRIPTION if none?(value)
+
       find(kind, value)&.description || UNRECOGNISED_DESCRIPTION
     end
 RUBY

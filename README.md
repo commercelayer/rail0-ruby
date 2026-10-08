@@ -129,8 +129,8 @@ client.payments.submit_by_hash(rail0_id, "capture", { transaction_hash: "0x…" 
 | `void_prepare` + `void` | payee | Cancel the hold, return funds to the payer (only before any capture) |
 | `release_prepare` + `release` | payer or payee | Return uncaptured escrow to the payer |
 | `refund_prepare` (phase 1+2) + `refund` | payee | Return captured funds to the payer via EIP-3009 |
-| `dispute_prepare(id, reason:)` + `dispute` | payer | Open a dispute (signal-only; reason required) |
-| `close_dispute_prepare(id, reason:)` + `close_dispute` | payer | Close an open dispute (reason required) |
+| `dispute_prepare(id, reason: nil)` + `dispute` | payer | Open a dispute (signal-only; reason optional) |
+| `close_dispute_prepare(id, reason: nil)` + `close_dispute` | payer | Close an open dispute (reason optional) |
 | `dispute_submit_by_hash` / `close_dispute_submit_by_hash` | payer | Report a dispute tx the wallet already broadcast |
 
 `release` is the one merchant-side operation either participant may send: the contract
@@ -464,22 +464,25 @@ pattern. Like the rest of `/payments` they need a session, but the payer's
 account-less SIWE login is enough:
 
 ```ruby
-prep = client.payments.dispute_prepare(rail0_id, reason: "not_received") # reason required
+prep = client.payments.dispute_prepare(rail0_id, reason: "not_received") # reason optional
 raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], BUYER_PRIVATE_KEY)
 client.payments.dispute(rail0_id, { signed_transaction: raw })
 # … later …
-prep = client.payments.close_dispute_prepare(rail0_id, reason: "withdrawn") # reason required
+prep = client.payments.close_dispute_prepare(rail0_id, reason: "withdrawn") # or omit reason:
 raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], BUYER_PRIVATE_KEY)
 client.payments.close_dispute(rail0_id, { signed_transaction: raw })
 ```
 
 #### Dispute reasons
 
-`reason:` is **required** on both prepares. It is a code from the gateway's dispute-reason
-dictionary (a String or a Symbol) or exactly that code's bytes32,
-`keccak256("rail0.dispute.<code>")`, which is what the contract stores. Anything else — the
-zero word, any other bytes32, a code from the other list, or the system-only `full_refund` —
-is refused 422 `unknown_dispute_reason`; omitting it raises `ArgumentError` before any request.
+`reason:` is **optional** on both prepares. Omit it (or pass `nil` or a blank string) and
+the SDK leaves `reason` out of the request: the dispute is opened/closed with no reason,
+the calldata carries the zero bytes32 (the gateway also accepts the zero word explicitly),
+and it reads back as `No reason given`. When given, it is a code from the gateway's
+dispute-reason dictionary (a String or a Symbol) or exactly that code's bytes32,
+`keccak256("rail0.dispute.<code>")`, which is what the contract stores. Anything else — any
+other non-zero bytes32, a code from the other list, or the system-only `full_refund` — is
+refused 422 `unknown_dispute_reason`.
 
 | Kind | Codes |
 |------|-------|
@@ -495,17 +498,21 @@ Rail0::DisputeReasons::OPEN                        # [Reason(code:, description:
 Rail0::DisputeReasons.codes(:close)                # ["resolved_with_merchant", "withdrawn", …]
 Rail0::DisputeReasons.find(:open, "not_received")  # Reason, or nil (also by bytes32)
 Rail0::DisputeReasons.valid?(:close, "full_refund") # false: system-only
-Rail0::DisputeReasons.description_for(:open, "0x00…00") # "Unrecognised reason"
+Rail0::DisputeReasons.valid?(:open, nil)           # true: no reason is accepted
+Rail0::DisputeReasons.none?(Rail0::DisputeReasons::ZERO_BYTES32) # true: nil, blank or zero
+Rail0::DisputeReasons.description_for(:open, "0x00…00") # "No reason given" (the zero word)
+Rail0::DisputeReasons.description_for(:open, "0x12…34") # "Unrecognised reason"
 ```
 
 Lookups take a kind because the lists overlap: `other` is both an open and a close reason.
 
 A dispute read back (`payments.disputes`, `disputes.list`) carries the decoded reason next
 to the raw bytes32: `reason_code` / `reason_description`, and `close_reason_code` /
-`close_reason_description` once closed (`close_reason_code` may be `full_refund`). A bytes32
-outside the dictionary — a dispute opened on the contract directly, or a pre-dictionary
-zero reason — is kept verbatim in `reason`, with `reason_code: nil` and
-`reason_description: "Unrecognised reason"`.
+`close_reason_description` once closed (`close_reason_code` may be `full_refund`). A
+dispute with no reason (the zero bytes32) has `reason_code: nil` and
+`reason_description: "No reason given"`; a non-zero bytes32 outside the dictionary — a
+dispute opened on the contract directly — is kept verbatim in `reason`, with
+`reason_code: nil` and `reason_description: "Unrecognised reason"`.
 
 ### Generic prepare/submit
 

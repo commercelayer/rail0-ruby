@@ -775,12 +775,28 @@ RSpec.describe Rail0::Client do
   # ── Payments: disputes (payer-driven) ──────────────────────────────────────
 
   describe "dispute operations" do
-    # The gateway made `reason` required (rail0-gateway#381): a call without it must fail in
-    # Ruby, before any request, rather than 400 on the wire.
-    it "dispute_prepare requires reason" do
-      expect { client.payments.dispute_prepare(PAYMENT_ID) }.to raise_error(ArgumentError, /reason/)
-      expect { client.payments.close_dispute_prepare(PAYMENT_ID) }.to raise_error(ArgumentError, /reason/)
-      expect(a_request(:post, /dispute/)).not_to have_been_made
+    # The gateway made `reason` optional again (rail0-gateway#382): omitted, nil or blank,
+    # the SDK leaves it out of the body and the dispute records no reason (zero bytes32).
+    it "dispute_prepare and close_dispute_prepare omit a missing or blank reason" do
+      open_stub = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/prepare")
+                  .with(body: {}).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+      close_stub = stub_request(:post, "#{BASE_URL}/payments/#{PAYMENT_ID}/dispute/close/prepare")
+                   .with(body: {}).to_return(status: 201, body: PREPARE_RESPONSE.to_json, headers: json_headers)
+      client.payments.dispute_prepare(PAYMENT_ID)
+      client.payments.dispute_prepare(PAYMENT_ID, reason: nil)
+      client.payments.close_dispute_prepare(PAYMENT_ID, reason: "  ")
+      expect(open_stub).to have_been_requested.twice
+      expect(close_stub).to have_been_requested.once
+    end
+
+    it "reads back a dispute with no reason" do
+      zero = "0x#{'0' * 64}"
+      stub_list("/payments/#{PAYMENT_ID}/disputes",
+                [DISPUTE.merge(reason: zero, reason_code: nil, reason_description: "No reason given")])
+      row = client.payments.disputes(PAYMENT_ID)[:data].first
+      expect(row[:reason]).to eq(zero)
+      expect(row[:reason_code]).to be_nil
+      expect(row[:reason_description]).to eq("No reason given")
     end
 
     it "dispute_prepare sends a code, a symbol code or a bytes32 as given" do
