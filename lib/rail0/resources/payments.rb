@@ -309,15 +309,19 @@ module Rail0
 
       # Phase 1 — build the unsigned dispute() transaction (payer only).
       #
-      # +reason+ is required: a code from {Rail0::DisputeReasons::OPEN} (e.g.
-      # "not_received" or :not_received) or exactly that code's bytes32. The gateway
-      # refuses anything else 422 +unknown_dispute_reason+ — the zero word and the
-      # close/system codes included — so it is the authority; the SDK sends the value
-      # as given rather than second-guessing a dictionary it may lag behind.
+      # +reason+ is optional (rail0-gateway#382). Omitted (nil) or blank, it is left
+      # out of the request and the dispute is opened with no reason: the calldata
+      # carries the zero bytes32 (which the gateway also accepts explicitly), read back
+      # as "No reason given". When given it must be a code from
+      # {Rail0::DisputeReasons::OPEN} (e.g. "not_received" or :not_received) or exactly
+      # that code's bytes32; the gateway refuses anything else 422
+      # +unknown_dispute_reason+ — the close/system codes included — so it is the
+      # authority; the SDK sends the value as given rather than second-guessing a
+      # dictionary it may lag behind.
       # @param id [String] Payment UUID or rail0_id.
-      # @param reason [String, Symbol] A DisputeOpenReason code, or its bytes32 (0x…).
+      # @param reason [String, Symbol, nil] A DisputeOpenReason code, or its bytes32 (0x…); nil for none.
       # @return [Hash]
-      def dispute_prepare(id, reason:, idempotency_key: nil)
+      def dispute_prepare(id, reason: nil, idempotency_key: nil)
         prepare_dispute("dispute/prepare", id, reason, idempotency_key: idempotency_key)
       end
 
@@ -331,14 +335,16 @@ module Rail0
 
       # Phase 1 — build the unsigned closeDispute() transaction (payer only).
       #
-      # +reason+ is required: a code from {Rail0::DisputeReasons::CLOSE} (e.g.
-      # "withdrawn") or exactly that code's bytes32. +full_refund+
-      # ({Rail0::DisputeReasons::SYSTEM}) is recorded by the protocol itself and, like
-      # any other value, is refused 422 +unknown_dispute_reason+.
+      # +reason+ is optional, as for {#dispute_prepare}: omitted or blank closes with
+      # no reason (the zero bytes32, "No reason given"). When given it must be a code
+      # from {Rail0::DisputeReasons::CLOSE} (e.g. "withdrawn") or exactly that code's
+      # bytes32. +full_refund+ ({Rail0::DisputeReasons::SYSTEM}) is recorded by the
+      # protocol itself and, like any other value, is refused 422
+      # +unknown_dispute_reason+.
       # @param id [String] Payment UUID or rail0_id.
-      # @param reason [String, Symbol] A DisputeCloseReason code, or its bytes32 (0x…).
+      # @param reason [String, Symbol, nil] A DisputeCloseReason code, or its bytes32 (0x…); nil for none.
       # @return [Hash]
-      def close_dispute_prepare(id, reason:, idempotency_key: nil)
+      def close_dispute_prepare(id, reason: nil, idempotency_key: nil)
         prepare_dispute("dispute/close/prepare", id, reason, idempotency_key: idempotency_key)
       end
 
@@ -381,8 +387,11 @@ module Rail0
       # +path+ is one of this class's own literals ("dispute/prepare",
       # "dispute/close/prepare"), never caller input, so it is interpolated as-is:
       # its `/` is meant to separate segments. Only +id+ goes through {#segment}.
+      # A nil or blank +reason+ is left out of the body (no reason); anything else is
+      # sent as given, stripped, for the gateway to resolve.
       def prepare_dispute(path, id, reason, idempotency_key: nil)
-        body = { reason: reason.to_s }
+        value = reason.to_s.strip
+        body = value.empty? ? {} : { reason: value }
         http.post("/payments/#{segment(id)}/#{path}", body,
                   headers: idempotency_headers(idempotency_key))
       end

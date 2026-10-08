@@ -275,15 +275,15 @@ module Rail0
       :id,                        # String
       :payment_id,                # String
       :status,                    # String
-      :reason,                    # String — On-chain bytes32 reason the dispute was opened with (hex), kept verbatim even when it is outside the dispute-reason dictionary.
-      :reason_code,               # DisputeOpenReason | nil — The DisputeOpenReason code `reason` reads as; null when the bytes32 is not in the dictionary (a direct contract call, or a pre-dictionary zero reason).
-      :reason_description,        # String — English description of `reason_code`; "Unrecognised reason" when the code is null.
+      :reason,                    # String — On-chain bytes32 reason the dispute was opened with (hex); the all-zero word when no reason was given; kept verbatim even when it is outside the dispute-reason dictionary.
+      :reason_code,               # DisputeOpenReason | nil — The DisputeOpenReason code `reason` reads as; null when no reason was given (the zero bytes32) or when the bytes32 is not in the dictionary (a direct contract call).
+      :reason_description,        # String — English description of `reason_code`; "No reason given" when `reason` is the zero bytes32; "Unrecognised reason" when it is a non-zero bytes32 outside the dictionary.
       :opened_block,
       :opened_at,                 # String
       :closed_by,
-      :close_reason,              # On-chain bytes32 close reason (hex); null while the dispute is open.
-      :close_reason_code,         # DisputeCloseReason | DisputeSystemCloseReason | nil — The code `close_reason` reads as: a DisputeCloseReason, or the system DisputeSystemCloseReason `full_refund` when a full refund auto-closed the dispute. Null while open, or when the bytes32 is not in the dictionary.
-      :close_reason_description,  # English description of `close_reason_code`; "Unrecognised reason" when `close_reason` is set but outside the dictionary; null while open.
+      :close_reason,              # On-chain bytes32 close reason (hex); the all-zero word when closed with no reason; null while the dispute is open.
+      :close_reason_code,         # DisputeCloseReason | DisputeSystemCloseReason | nil — The code `close_reason` reads as: a DisputeCloseReason, or the system DisputeSystemCloseReason `full_refund` when a full refund auto-closed the dispute. Null while open, when closed with no reason (the zero bytes32), or when the bytes32 is not in the dictionary.
+      :close_reason_description,  # English description of `close_reason_code`; "No reason given" when `close_reason` is the zero bytes32; "Unrecognised reason" when it is a non-zero bytes32 outside the dictionary; null while open.
       :closed_block,
       :closed_at,
       keyword_init: true

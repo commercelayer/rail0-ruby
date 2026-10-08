@@ -64,7 +64,28 @@ RSpec.describe Rail0::DisputeReasons do
       expect(reasons.valid?(:close, "withdrawn")).to be(true)
       expect(reasons.valid?(:close, "full_refund")).to be(false)
       expect(reasons.valid?(:system, "full_refund")).to be(false)
-      expect(reasons.valid?(:open, "0x#{'0' * 64}")).to be(false)
+      expect(reasons.valid?(:open, "0x#{'1' * 64}")).to be(false)
+    end
+
+    # The reason is optional again (rail0-gateway#382): nil, blank and the zero word all
+    # mean "no reason", which both prepares accept.
+    it "accepts no reason on the open and close lists, never on :system" do
+      [nil, "", "  ", "0x#{'0' * 64}", "0X#{'0' * 64}"].each do |none|
+        expect(reasons.valid?(:open, none)).to be(true)
+        expect(reasons.valid?(:close, none)).to be(true)
+        expect(reasons.valid?(:system, none)).to be(false)
+      end
+    end
+  end
+
+  describe ".none?" do
+    it "is true for nil, blank and the zero bytes32 only" do
+      expect(reasons.none?(nil)).to be(true)
+      expect(reasons.none?(" ")).to be(true)
+      expect(reasons.none?(Rail0::DisputeReasons::ZERO_BYTES32)).to be(true)
+      expect(Rail0::DisputeReasons::ZERO_BYTES32).to eq("0x#{'0' * 64}")
+      expect(reasons.none?("not_received")).to be(false)
+      expect(reasons.none?("0x#{'0' * 63}1")).to be(false)
     end
   end
 
@@ -72,8 +93,14 @@ RSpec.describe Rail0::DisputeReasons do
     it "decodes a bytes32 and falls back to the gateway's unrecognised text" do
       full_refund = Rail0::DisputeReasons::SYSTEM.first.bytes32
       expect(reasons.description_for(:system, full_refund)).to eq("Closed automatically by a full refund")
-      expect(reasons.description_for(:open, "0x#{'0' * 64}")).to eq("Unrecognised reason")
+      expect(reasons.description_for(:open, "0x#{'1' * 64}")).to eq("Unrecognised reason")
       expect(Rail0::DisputeReasons::UNRECOGNISED_DESCRIPTION).to eq("Unrecognised reason")
+    end
+
+    it "describes no reason (the zero word) the way the gateway does" do
+      expect(reasons.description_for(:open, "0x#{'0' * 64}")).to eq("No reason given")
+      expect(reasons.description_for(:close, nil)).to eq("No reason given")
+      expect(Rail0::DisputeReasons::NO_REASON_DESCRIPTION).to eq("No reason given")
     end
   end
 end

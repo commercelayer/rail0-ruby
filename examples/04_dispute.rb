@@ -26,8 +26,9 @@ client = Rail0::Client.new(
 )
 
 # ── Open a dispute ────────────────────────────────────────────────────────────
-# reason is required: a code from Rail0::DisputeReasons.codes(:open), or exactly its
-# bytes32. Anything else is refused 422 unknown_dispute_reason.
+# reason is optional: a code from Rail0::DisputeReasons.codes(:open), or exactly its
+# bytes32 — omit it to open the dispute with no reason ("No reason given"). Any other
+# value is refused 422 unknown_dispute_reason.
 prep = client.payments.dispute_prepare(PAYMENT_ID, reason: "not_received")
 raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYER_KEY)
 client.payments.dispute(PAYMENT_ID, { signed_transaction: raw })
@@ -43,14 +44,15 @@ end
 
 # Inspect the dispute history.
 client.payments.disputes(PAYMENT_ID)[:data].each do |d|
-  # reason_code is nil (and reason_description "Unrecognised reason") for a bytes32
-  # outside the dictionary — e.g. one sent to the contract directly.
+  # reason_code is nil with reason_description "No reason given" when no reason was
+  # given, or "Unrecognised reason" for a non-zero bytes32 outside the dictionary —
+  # e.g. one sent to the contract directly.
   puts "  dispute #{d[:status]} opened_at=#{d[:opened_at]} " \
        "reason=#{d[:reason_code].inspect} (#{d[:reason_description]})"
 end
 
 # ── Close the dispute (e.g. after resolving it off-platform) ──────────────────
-# reason is required here too: a code from Rail0::DisputeReasons.codes(:close).
+# reason is optional here too: a code from Rail0::DisputeReasons.codes(:close), or omit it.
 prep = client.payments.close_dispute_prepare(PAYMENT_ID, reason: "resolved_with_merchant")
 raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYER_KEY)
 client.payments.close_dispute(PAYMENT_ID, { signed_transaction: raw })
