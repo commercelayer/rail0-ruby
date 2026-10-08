@@ -55,6 +55,10 @@ module Rail0
     "payer_must_be_caller" => "the payer must be the signed-in wallet — sign in as the buyer to create its payment",
     "wallet_deactivated" => "this wallet is deactivated: it can still read, but not act on payments or change the account — reactivate it or sign in with another of the account's wallets",
     "account_deactivated" => "the merchant account is deactivated: void, release and refund still work, but authorize, charge, capture and account changes do not — ask an operator to reactivate it",
+    # Login resolves the account FROM a wallet, so an account left with no active one
+    # could neither act nor add a wallet back.
+    "last_active_wallet" => "this is the account's only active wallet — add or reactivate another wallet first, then switch this one off",
+    "last_admin" => "the change would leave no active operator — grant the operator role to another active account first",
     "not_redrivable" => "only a pending transaction that already holds its signed bytes can be redriven — check the transaction's `redrivable` flag, and submit the signature if it has none",
     "refund_expired" => "the refund window has closed (refundExpiry passed) — refund/dispute is no longer possible",
     "authorization_not_expired" => "release opens only after authorizationExpiry — wait until it passes",

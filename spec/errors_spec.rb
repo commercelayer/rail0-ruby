@@ -115,7 +115,7 @@ RSpec.describe "error surface" do
     # Codes the gateway split out of generic 403/422s, each needing a different next step.
     it "covers the party, deactivation and redrive codes" do
       %w[account_deactivated wallet_deactivated release_submitter_not_a_party
-         not_redrivable payer_must_be_caller].each do |code|
+         not_redrivable payer_must_be_caller last_active_wallet last_admin].each do |code|
         expect(Rail0.describe_error(code)).not_to be_nil, "#{code} has no hint"
       end
     end

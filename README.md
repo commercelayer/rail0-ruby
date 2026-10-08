@@ -324,6 +324,12 @@ client.wallets.delete(account_id, id_or_address)                    # 204
 client.wallets.balances(account_id, id_or_address, chain_id: 84532) # live on-chain balances
 ```
 
+`delete` only deactivates (the same as `update(active: false)`; payments name the
+address, so the row stays). Either way the account's **only active wallet** is
+refused with 422 `last_active_wallet` — login resolves the account from a wallet,
+so an account with none could neither act nor add one back. Add or reactivate
+another wallet first.
+
 **Registering a wallet needs a SIWE proof-of-ownership of the address being
 added**, not merely the session JWT. `auth.prove_address` runs that handshake and
 returns the `message` + `signature` to splat into `create`. Sign with **the added
