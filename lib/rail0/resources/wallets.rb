@@ -77,7 +77,9 @@ module Rail0
         http.post("/accounts/#{segment(account_id)}/wallets", body)
       end
 
-      # Update a wallet's label and/or active status.
+      # Update a wallet's label and/or active status. +active: false+ on the account's
+      # only active wallet raises ApiError 422 +last_active_wallet+: login resolves the
+      # account from a wallet, so an account with none could neither act nor add one back.
       # @param account_id [String] Account UUID.
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @param label [String, nil] New label.
@@ -90,7 +92,8 @@ module Rail0
         http.patch(wallet_path(account_id, id_or_address), body)
       end
 
-      # Soft-delete (deactivate) a wallet. Returns HTTP 204.
+      # Soft-delete (deactivate) a wallet — the same as +update(active: false)+, so the
+      # account's only active wallet raises ApiError 422 +last_active_wallet+. Returns HTTP 204.
       # @param account_id [String] Account UUID.
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @return [nil]
