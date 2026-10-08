@@ -18,6 +18,7 @@ module Rail0
     "already_disputed" => "a dispute is already open — close it first",
     "not_disputed" => "there is no open dispute to close",
     "nothing_to_dispute" => "a dispute needs a merchant-held (refundable) balance",
+    "unknown_dispute_reason" => "reason must be a dispute-reason code (Rail0::DisputeReasons.codes(:open) / codes(:close)) or exactly its bytes32 — full_refund is system-only",
     "transaction_not_overwritable" => "a transaction for this operation is already in flight — wait for it to settle",
     "signer_mismatch" => "the signing key doesn't match the payment's payer/payee",
     # The SIWE BINDING failures, split out of signer_mismatch so a failed login says

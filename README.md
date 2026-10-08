@@ -129,8 +129,8 @@ client.payments.submit_by_hash(rail0_id, "capture", { transaction_hash: "0x…" 
 | `void_prepare` + `void` | payee | Cancel the hold, return funds to the payer (only before any capture) |
 | `release_prepare` + `release` | payer or payee | Return uncaptured escrow to the payer |
 | `refund_prepare` (phase 1+2) + `refund` | payee | Return captured funds to the payer via EIP-3009 |
-| `dispute_prepare` + `dispute` | payer | Open a dispute (signal-only) |
-| `close_dispute_prepare` + `close_dispute` | payer | Close an open dispute |
+| `dispute_prepare(id, reason:)` + `dispute` | payer | Open a dispute (signal-only; reason required) |
+| `close_dispute_prepare(id, reason:)` + `close_dispute` | payer | Close an open dispute (reason required) |
 | `dispute_submit_by_hash` / `close_dispute_submit_by_hash` | payer | Report a dispute tx the wallet already broadcast |
 
 `release` is the one merchant-side operation either participant may send: the contract
@@ -464,13 +464,48 @@ pattern. Like the rest of `/payments` they need a session, but the payer's
 account-less SIWE login is enough:
 
 ```ruby
-prep = client.payments.dispute_prepare(rail0_id, reason: "0x…") # reason optional
+prep = client.payments.dispute_prepare(rail0_id, reason: "not_received") # reason required
 raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], BUYER_PRIVATE_KEY)
 client.payments.dispute(rail0_id, { signed_transaction: raw })
 # … later …
-client.payments.close_dispute_prepare(rail0_id)
+prep = client.payments.close_dispute_prepare(rail0_id, reason: "withdrawn") # reason required
+raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], BUYER_PRIVATE_KEY)
 client.payments.close_dispute(rail0_id, { signed_transaction: raw })
 ```
+
+#### Dispute reasons
+
+`reason:` is **required** on both prepares. It is a code from the gateway's dispute-reason
+dictionary (a String or a Symbol) or exactly that code's bytes32,
+`keccak256("rail0.dispute.<code>")`, which is what the contract stores. Anything else — the
+zero word, any other bytes32, a code from the other list, or the system-only `full_refund` —
+is refused 422 `unknown_dispute_reason`; omitting it raises `ArgumentError` before any request.
+
+| Kind | Codes |
+|------|-------|
+| Open (`dispute_prepare`) | `not_received`, `not_as_described`, `damaged_or_defective`, `duplicate`, `incorrect_amount`, `cancelled`, `refund_not_received`, `unauthorized`, `other` |
+| Close (`close_dispute_prepare`) | `resolved_with_merchant`, `withdrawn`, `item_received`, `other` |
+| System (never sent; read back only) | `full_refund` — a full refund auto-closed the dispute |
+
+`Rail0::DisputeReasons` carries the dictionary as constants, generated from the gateway's
+`DisputeOpenReason` / `DisputeCloseReason` / `DisputeSystemCloseReason` schemas:
+
+```ruby
+Rail0::DisputeReasons::OPEN                        # [Reason(code:, description:, bytes32:), …]
+Rail0::DisputeReasons.codes(:close)                # ["resolved_with_merchant", "withdrawn", …]
+Rail0::DisputeReasons.find(:open, "not_received")  # Reason, or nil (also by bytes32)
+Rail0::DisputeReasons.valid?(:close, "full_refund") # false: system-only
+Rail0::DisputeReasons.description_for(:open, "0x00…00") # "Unrecognised reason"
+```
+
+Lookups take a kind because the lists overlap: `other` is both an open and a close reason.
+
+A dispute read back (`payments.disputes`, `disputes.list`) carries the decoded reason next
+to the raw bytes32: `reason_code` / `reason_description`, and `close_reason_code` /
+`close_reason_description` once closed (`close_reason_code` may be `full_refund`). A bytes32
+outside the dictionary — a dispute opened on the contract directly, or a pre-dictionary
+zero reason — is kept verbatim in `reason`, with `reason_code: nil` and
+`reason_description: "Unrecognised reason"`.
 
 ### Generic prepare/submit
 
@@ -850,7 +885,7 @@ broadcast may already be in flight.
 ## Project structure
 
 ```text
-gen/generate.rb        regenerates lib/rail0/types.rb from the gateway OpenAPI schema
+gen/generate.rb        regenerates lib/rail0/types.rb and lib/rail0/dispute_reasons.rb from the gateway OpenAPI schema
 
 lib/rail0/
   client.rb            Rail0::Client — entry point
@@ -863,6 +898,7 @@ lib/rail0/
   webhook_signature.rb Rail0::WebhookSignature — delivery verification
   signing.rb           EIP-3009 + EIP-1559 signing (requires 'eth')
   stablecoins.rb       stablecoin address registry
+  dispute_reasons.rb   generated Rail0::DisputeReasons — the dispute-reason dictionary
   types.rb             generated Struct docs of the gateway schema (reference only)
   version.rb           Rail0::VERSION
   resources/
@@ -890,7 +926,7 @@ bundle exec rubocop      # style only
 bundle exec rubocop -a   # and fix what is safely fixable
 bundle exec rspec        # specs only
 
-# Regenerate lib/rail0/types.rb after a gateway schema change:
+# Regenerate lib/rail0/types.rb and lib/rail0/dispute_reasons.rb after a gateway schema change:
 #   defaults to ../rail0-gateway/docs/openapi.json, or set RAIL0_SCHEMA_PATH.
 ruby gen/generate.rb
 ```

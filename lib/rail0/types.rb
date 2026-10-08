@@ -10,6 +10,17 @@
 
 module Rail0
   module Types
+    # What still names a wallet's address: the payments and transactions an admin is shown before
+    # switching the wallet off.
+    WalletUsage = Struct.new(
+      :wallet_id,               # String
+      :address,                 # String
+      :payments_as_payee,       # Integer
+      :payments_as_payer,       # Integer
+      :transactions_as_sender,  # Integer
+      keyword_init: true
+    )
+
     # A wallet's on-chain balances, one entry per chain.
     WalletBalances = Struct.new(
       :wallet_id,  # String
@@ -72,6 +83,38 @@ module Rail0
       :contract_version,  # String
       :active_chains,     # Integer
       :active_contracts,  # Integer
+      keyword_init: true
+    )
+
+    # GET /admin/rpc_health: per-chain RPC reachability as seen from the gateway's process.
+    AdminRpcHealth = Struct.new(
+      :status,      # String — The worst chain status.
+      :checked_at,  # String — When the probe ran; a cached answer keeps its original time.
+      :chains,      # Array
+      keyword_init: true
+    )
+
+    AdminRpcHealthChain = Struct.new(
+      :chain_id,        # Integer
+      :name,            # String
+      :finality_tag,    # String
+      :ok,              # Boolean — At least one endpoint serves the chain.
+      :primary_status,  # String — The first endpoint's status; null when none is configured.
+      :status,          # String — ok: every endpoint up; degraded: some; error: none, or no endpoint configured.
+      :endpoints,       # Array
+      keyword_init: true
+    )
+
+    AdminRpcHealthEndpoint = Struct.new(
+      :url,         # String — Scheme, host, port and path only.
+      :ok,          # Boolean
+      :status,      # String
+      :error,       # String — Short `Class: first line`; never an upstream body.
+      :chain_id,    # Integer — What the node reported.
+      :latency_ms,  # Integer — First round trip, handshake included.
+      :head,        # Integer
+      :tag_block,   # Integer — The finality-tag block; null on depth chains or when the node refuses the tag.
+      :tag_error,   # String
       keyword_init: true
     )
 
@@ -229,14 +272,18 @@ module Rail0
 
     # Buyer-driven, signal-only dispute lifecycle (no fund effect).
     Dispute = Struct.new(
-      :id,            # String
-      :payment_id,    # String
-      :status,        # String
-      :reason,        # String — On-chain bytes32 reason code (hex).
+      :id,                        # String
+      :payment_id,                # String
+      :status,                    # String
+      :reason,                    # String — On-chain bytes32 reason the dispute was opened with (hex), kept verbatim even when it is outside the dispute-reason dictionary.
+      :reason_code,               # DisputeOpenReason | nil — The DisputeOpenReason code `reason` reads as; null when the bytes32 is not in the dictionary (a direct contract call, or a pre-dictionary zero reason).
+      :reason_description,        # String — English description of `reason_code`; "Unrecognised reason" when the code is null.
       :opened_block,
-      :opened_at,     # String
+      :opened_at,                 # String
       :closed_by,
-      :close_reason,
+      :close_reason,              # On-chain bytes32 close reason (hex); null while the dispute is open.
+      :close_reason_code,         # DisputeCloseReason | DisputeSystemCloseReason | nil — The code `close_reason` reads as: a DisputeCloseReason, or the system DisputeSystemCloseReason `full_refund` when a full refund auto-closed the dispute. Null while open, or when the bytes32 is not in the dictionary.
+      :close_reason_description,  # English description of `close_reason_code`; "Unrecognised reason" when `close_reason` is set but outside the dictionary; null while open.
       :closed_block,
       :closed_at,
       keyword_init: true

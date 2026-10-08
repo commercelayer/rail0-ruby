@@ -116,7 +116,7 @@ RSpec.describe Rail0::Resources::Query do
     end
 
     it "leaves the literal multi-segment dispute paths intact" do
-      path = wire_path(Net::HTTP::Post) { client.payments.close_dispute_prepare(PAYMENT_ID) }
+      path = wire_path(Net::HTTP::Post) { client.payments.close_dispute_prepare(PAYMENT_ID, reason: "withdrawn") }
       expect(path).to eq("/payments/#{PAYMENT_ID}/dispute/close/prepare")
     end
 

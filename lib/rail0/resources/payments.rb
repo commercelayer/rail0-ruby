@@ -308,10 +308,16 @@ module Rail0
       end
 
       # Phase 1 — build the unsigned dispute() transaction (payer only).
+      #
+      # +reason+ is required: a code from {Rail0::DisputeReasons::OPEN} (e.g.
+      # "not_received" or :not_received) or exactly that code's bytes32. The gateway
+      # refuses anything else 422 +unknown_dispute_reason+ — the zero word and the
+      # close/system codes included — so it is the authority; the SDK sends the value
+      # as given rather than second-guessing a dictionary it may lag behind.
       # @param id [String] Payment UUID or rail0_id.
-      # @param reason [String, nil] Optional bytes32 code (0x…); defaults to zero server-side.
+      # @param reason [String, Symbol] A DisputeOpenReason code, or its bytes32 (0x…).
       # @return [Hash]
-      def dispute_prepare(id, reason: nil, idempotency_key: nil)
+      def dispute_prepare(id, reason:, idempotency_key: nil)
         prepare_dispute("dispute/prepare", id, reason, idempotency_key: idempotency_key)
       end
 
@@ -324,10 +330,15 @@ module Rail0
       end
 
       # Phase 1 — build the unsigned closeDispute() transaction (payer only).
+      #
+      # +reason+ is required: a code from {Rail0::DisputeReasons::CLOSE} (e.g.
+      # "withdrawn") or exactly that code's bytes32. +full_refund+
+      # ({Rail0::DisputeReasons::SYSTEM}) is recorded by the protocol itself and, like
+      # any other value, is refused 422 +unknown_dispute_reason+.
       # @param id [String] Payment UUID or rail0_id.
-      # @param reason [String, nil] Optional bytes32 code (0x…).
+      # @param reason [String, Symbol] A DisputeCloseReason code, or its bytes32 (0x…).
       # @return [Hash]
-      def close_dispute_prepare(id, reason: nil, idempotency_key: nil)
+      def close_dispute_prepare(id, reason:, idempotency_key: nil)
         prepare_dispute("dispute/close/prepare", id, reason, idempotency_key: idempotency_key)
       end
 
@@ -371,7 +382,7 @@ module Rail0
       # "dispute/close/prepare"), never caller input, so it is interpolated as-is:
       # its `/` is meant to separate segments. Only +id+ goes through {#segment}.
       def prepare_dispute(path, id, reason, idempotency_key: nil)
-        body = reason ? { reason: reason } : {}
+        body = { reason: reason.to_s }
         http.post("/payments/#{segment(id)}/#{path}", body,
                   headers: idempotency_headers(idempotency_key))
       end
