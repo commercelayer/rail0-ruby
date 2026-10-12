@@ -105,6 +105,15 @@ module Rail0
       end
 
       # Generate a new shared secret, returned once on the response.
+      #
+      # The replaced secret is kept for a grace window (the gateway's
+      # WEBHOOK_SECRET_GRACE, one hour by default): inside it every delivery carries
+      # X-Rail0-Signature under the new key AND X-Rail0-Signature-Previous under the
+      # old one, so an endpoint verifies with whichever key it has deployed and nothing
+      # in flight at rotation becomes unverifiable — see {Rail0::WebhookSignature}. The
+      # old key signs only, is never honoured past the window, and a second rotation
+      # inside it drops the oldest key.
+      #
       # @param id [String] Webhook UUID.
       # @return [Hash] webhook record including the new shared_secret
       def rotate_secret(id)

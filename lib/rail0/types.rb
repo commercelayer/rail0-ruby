@@ -334,15 +334,81 @@ module Rail0
     )
 
     # The account's own profile as the holder reads it (GET) and as a PATCH returns it — id, name,
-    # email, timestamps. Deliberately no admin/role field: the operator grant lives in a separate table,
-    # so a standard account's profile carries no trace of that axis. An ADMIN reading any account gets
-    # the whole record plus `admin` instead, which is a different shape and not this one.
+    # email, priority_tip, timestamps. Deliberately no admin/role field: the operator grant lives in a
+    # separate table, so a standard account's profile carries no trace of that axis. An ADMIN reading
+    # any account gets the whole record plus `admin` instead, which is a different shape and not this
+    # one.
     Account = Struct.new(
-      :id,          # String
-      :name,        # String
+      :id,            # String
+      :name,          # String
       :email,
+      :priority_tip,  # Boolean — Whether the merchant's own transactions tip the network's suggested priority fee (true, the default) or the chain's minimum tip (false: 0 on most chains, 25 gwei on Polygon PoS/Amoy). The buyer's dispute/close_dispute never read it.
+      :created_at,    # String
+      :updated_at,    # String
+      keyword_init: true
+    )
+
+    # An operator grant with the people named.
+    AdministratorFull = Struct.new(
+      :id,          # String
+      :account_id,  # String
+      :granted_by,  # String
+      :note,        # String
+      :expires_at,  # String
       :created_at,  # String
-      :updated_at,  # String
+      :account,     # Hash — The account's public shape (id, name, email, priority_tip, timestamps).
+      :grantor,     # Hash — The account's public shape (id, name, email, priority_tip, timestamps).
+      keyword_init: true
+    )
+
+    # One row of the operator audit log.
+    AdminAction = Struct.new(
+      :id,                 # String
+      :actor_account_id,   # String
+      :actor_address,      # String
+      :action,             # String
+      :resource_type,      # String
+      :resource_id,        # String
+      :target_account_id,  # String
+      :detail,             # Hash
+      :created_at,         # String
+      :actor,              # Hash — The account's public shape (id, name, email, priority_tip, timestamps).
+      :target_account,     # Hash — The account's public shape (id, name, email, priority_tip, timestamps).
+      keyword_init: true
+    )
+
+    # One reported policy value.
+    PolicySetting = Struct.new(
+      :value,       # The effective value (number, boolean, string, list or map).
+      :env,         # String — The environment variable that sets it; null for a constant.
+      :overridden,  # Boolean — Whether that variable is set in this process.
+      keyword_init: true
+    )
+
+    # GET /admin/policy: the effective policy, grouped. Every leaf is a PolicySetting.
+    PolicyReport = Struct.new(
+      :payments,      # Hash
+      :recovery,      # Hash
+      :retention,     # Hash
+      :webhooks,      # Hash
+      :settlement,    # Hash
+      :rate_limit,    # Hash
+      :siwe,          # Hash
+      :fees,          # Hash
+      :rpc,           # Hash
+      :generated_at,  # String
+      keyword_init: true
+    )
+
+    # GET /admin/catalog: the snapshot against the database, per table.
+    CatalogDiff = Struct.new(
+      :loaded_at,    # String
+      :checked_at,   # String
+      :stale,        # Boolean
+      :pending,      # Integer
+      :blockchains,  # Hash
+      :tokens,       # Hash
+      :contracts,    # Hash
       keyword_init: true
     )
 

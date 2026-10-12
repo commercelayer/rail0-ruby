@@ -64,8 +64,22 @@ RSpec.describe Rail0::Resources::Accounts do
 
     # The gateway answers an empty PATCH with 400; refusing it here saves the round trip.
     it "raises ArgumentError without sending anything when no field is given" do
-      expect { client.accounts.update(account_id) }.to raise_error(ArgumentError, /name or email/)
+      expect { client.accounts.update(account_id) }.to raise_error(ArgumentError, /name, email or priority_tip/)
       expect(a_request(:patch, path)).not_to have_been_made
+    end
+
+    # false is the value that switches the fee setting off, so it must reach the wire as
+    # false, alone — a `compact`-style drop would turn it into "nothing to change".
+    it "sends priority_tip: false and returns the profile carrying it" do
+      stub = stub_request(:patch, path)
+             .with(body: { priority_tip: false }.to_json)
+             .to_return(status: 200, body: profile.merge(priority_tip: false).to_json,
+                        headers: { "Content-Type" => "application/json" })
+
+      result = client.accounts.update(account_id, priority_tip: false)
+
+      expect(stub).to have_been_requested
+      expect(result).to include(priority_tip: false)
     end
 
     # `active` is the operator's field on this route; an owner sending it gets 403.

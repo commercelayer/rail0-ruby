@@ -31,7 +31,8 @@ module Rail0
       end
 
       # List payments for the authenticated wallet (requires JWT). Returns
-      # payments where the caller is the payer or payee.
+      # payments where the caller is the payer or payee — or, with `scope: "all"`
+      # (admin only), every payment on the gateway.
       # @param status [String, Array<String>, nil] Filter by payment status: one state, or
       #   an Array matching ANY of them (sent comma-separated, `status=authorized,expired`).
       #   An unknown value is 400 `validation_failed` naming it.
@@ -51,6 +52,16 @@ module Rail0
       #   the gateway scales by the token's decimals. The two units coexist in the API.
       # @param created_from [String, nil] Only payments created at/after this ISO-8601 time.
       # @param created_to [String, nil] Only payments created at/before this ISO-8601 time.
+      # @param scope [String, nil] "mine" (the default): the authenticated wallet's payments.
+      #   "all": every payment on the gateway — the operator's cross-account list on the
+      #   same call, admin session required (403 otherwise, never silently narrowed to your
+      #   own). The three filters below exist only there and are ignored without it.
+      # @param account_id [String, nil] scope "all" only: payments whose payee is one of
+      #   this account's wallets.
+      # @param has_error [Boolean, nil] scope "all" only: true = payments carrying a
+      #   `last_error_code`, false = none.
+      # @param expiring_within [Integer, nil] scope "all" only: `authorized` payments whose
+      #   `authorization_expiry` falls within this many SECONDS from now (1..90 days).
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
       # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
@@ -62,12 +73,15 @@ module Rail0
       #   further actions on the row while true).
       def list(status: nil, mode: nil, payer: nil, payee: nil, token: nil, rail0_id: nil,
                chain_id: nil, disputed: nil, operation: nil, min_amount: nil, max_amount: nil,
-               created_from: nil, created_to: nil, sort: nil, page: nil, per_page: nil)
+               created_from: nil, created_to: nil, scope: nil, account_id: nil, has_error: nil,
+               expiring_within: nil, sort: nil, page: nil, per_page: nil)
         query = build_query(status: status, mode: mode, payer: payer, payee: payee, token: token,
                             rail0_id: rail0_id, chain_id: chain_id, disputed: disputed,
                             operation: operation,
                             min_amount: min_amount, max_amount: max_amount,
                             created_from: created_from, created_to: created_to,
+                            scope: scope, account_id: account_id, has_error: has_error,
+                            expiring_within: expiring_within,
                             sort: sort, page: page, per_page: per_page)
         http.get_list("/payments#{query}")
       end
@@ -165,7 +179,9 @@ module Rail0
       # signature, not retrying a send that never happened.
       #
       # The transaction id is resolved THROUGH the payment, so one belonging to another
-      # payment answers 404 rather than redriving someone else's row.
+      # payment answers 404 rather than redriving someone else's row. Payee-gated, like
+      # the other operation writes — or an operator session on any payment, which the
+      # gateway records in its audit log as transaction.redrive.
       #
       # @param id [String] Payment UUID or rail0_id.
       # @param transaction_id [String] The transaction row to redrive.
