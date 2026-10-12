@@ -393,10 +393,16 @@ client.payments.update(id, description: nil)          # nil (or "") clears it
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
 client.payments.list(status: %w[authorized expired])  # any of several states → ?status=authorized,expired
 client.payments.list(operation: "refund")            # payments with at least one refund transaction
+# The operator's cross-account list (admin only, 403 otherwise): every payment on the
+# gateway, same filters, plus three that exist only there — the payee account, whether a
+# last_error_code is set, and authorized payments whose hold lapses within N SECONDS.
+client.payments.list(scope: "all", has_error: true)
+client.payments.list(scope: "all", expiring_within: 24 * 3600)
+client.payments.list(scope: "all", account_id: "019f…")
 client.payments.transactions(id, operation: "capture")
 client.payments.transactions(id, status: %w[submitting submitted])  # on its way to the chain
 # `operation` on both takes Payments::TRANSACTION_OPERATIONS — dispute and close_dispute included.
-client.payments.redrive(id, transaction_id)           # re-enqueue a stuck broadcast
+client.payments.redrive(id, transaction_id)           # re-enqueue a stuck broadcast (payee, or an operator)
 # Offer `redrive` on the row's `redrivable` flag — the same predicate the gateway guards
 # the route with — and not on `status == "pending"`: a pending row holding no signed
 # transaction is not redrivable, and there the next step is submitting the signature, not
@@ -610,6 +616,25 @@ window is what bounds a replay of a captured delivery. Pass the body exactly as
 received: re-serialising a parsed hash changes key order and whitespace, and the
 digest with it. Comparison is constant-time.
 
+**Rotating the secret without a gap.** After `rotate_secret` the gateway keeps the
+replaced key for a grace window (`WEBHOOK_SECRET_GRACE`, one hour by default): inside it
+every delivery carries `X-Rail0-Signature` under the new key **and**
+`X-Rail0-Signature-Previous` under the old one, so an endpoint verifies with whichever key
+it has deployed and nothing in flight at rotation becomes unverifiable. Deploy the new
+secret at your pace within the window; an endpoint that still holds the old one verifies
+the previous header instead — the old key signs only, and is never honoured past the
+window. A second rotation inside it drops the oldest key.
+
+```ruby
+verify = ->(signature) do
+  Rail0::WebhookSignature.verify(body: raw, signature: signature,
+                                 timestamp: request.headers["X-Rail0-Timestamp"],
+                                 secret: ENV.fetch("RAIL0_WEBHOOK_SECRET"))
+end
+ok = verify.call(request.headers["X-Rail0-Signature"]) ||
+     verify.call(request.headers["X-Rail0-Signature-Previous"])
+```
+
 ## Account (JWT)
 
 ```ruby
@@ -618,21 +643,28 @@ digest with it. Comparison is constant-time.
 # merchant's account — and an id that is not an account answers 404 exactly as
 # another account's id does, so the pair says nothing about existence.
 client.accounts.get(account_id)
-# => { id: "019f…", name: "Test Merchant", email: "merchant@rail0.test",
+# => { id: "019f…", name: "Test Merchant", email: "merchant@rail0.test", priority_tip: true,
 #      created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" }
 
 # Update the same profile — only the fields passed are sent.
 client.accounts.update(account_id, email: "ops@merchant.example")
 client.accounts.update(account_id, name: "Merchant Ltd", email: "ops@merchant.example")
+client.accounts.update(account_id, priority_tip: false)   # minimum tip on the account's own transactions
 ```
 
 `email` is in the response because the holder is this endpoint's only possible caller.
 
-`update` needs at least one of `name`/`email` (it raises `ArgumentError` before sending an
-empty PATCH, which the gateway would answer with 400). Both are unique across accounts, so
-a value another account holds answers **409**. It is a write on the account, so a
-deactivated wallet (403 `wallet_deactivated`) or account (403 `account_deactivated`) cannot
-make it. The gateway's `active` field is operator-only and not exposed here.
+`update` needs at least one of `name`/`email`/`priority_tip` (it raises `ArgumentError`
+before sending an empty PATCH, which the gateway would answer with 400). Name and email are
+unique across accounts, so a value another account holds answers **409**. It is a write on
+the account, so a deactivated wallet (403 `wallet_deactivated`) or account (403
+`account_deactivated`) cannot make it. The gateway's `active` field is operator-only and not
+exposed here.
+
+**`priority_tip`** is the fee setting of the account's **own** transactions (authorize,
+capture, void, release, refund): `true`, the default, tips the network's suggested priority
+fee; `false` uses the chain's minimum tip (0 on most chains, 25 gwei on Polygon PoS/Amoy) —
+cheaper, slower to confirm under load. The buyer's dispute/close-dispute never read it.
 The account's wallets are a collection under the same path (`client.wallets`), and
 buyer-facing discovery is `client.payment_methods`.
 

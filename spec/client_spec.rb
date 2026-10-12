@@ -603,6 +603,17 @@ RSpec.describe Rail0::Client do
       client.payments.list(operation: "dispute")
       expect(stub).to have_been_requested
     end
+
+    # The operator's cross-account list rides on the same call behind scope: "all"; the
+    # three filters that exist only there go out by their gateway names, has_error as a
+    # tri-state (false is a filter, not an absence) and expiring_within in seconds.
+    it "forwards scope=all with the operator-only filters, false included" do
+      stub = stub_list("/payments?scope=all&account_id=019f8a3d-b781-7b00-8b75-8427f7e591d2" \
+                       "&has_error=false&expiring_within=86400", [PAYMENT_DETAIL])
+      client.payments.list(scope: "all", account_id: "019f8a3d-b781-7b00-8b75-8427f7e591d2",
+                           has_error: false, expiring_within: 86_400)
+      expect(stub).to have_been_requested
+    end
   end
 
   describe "payments.transactions" do

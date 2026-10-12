@@ -16,6 +16,12 @@ module Rail0
   #   X-Rail0-Timestamp  unix seconds, as a string
   #   X-Rail0-Signature  hex HMAC-SHA256 over "{timestamp}.{body}", keyed by the secret
   #
+  # and, for a grace window after a secret rotation (the gateway's
+  # WEBHOOK_SECRET_GRACE, one hour by default), X-Rail0-Signature-Previous: the same
+  # digest under the REPLACED secret, so an endpoint still holding the old key passes
+  # that header to {verify} instead and no delivery in flight at rotation is rejected.
+  # The old key signs only, and is never honoured past the window.
+  #
   # The timestamp is inside the signed string on purpose: without it a captured
   # delivery is replayable forever, because the body alone stays valid indefinitely.
   # That is why {verify} rejects a stale timestamp even when the digest matches —

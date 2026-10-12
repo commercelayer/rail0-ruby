@@ -30,8 +30,12 @@ module Rail0
 
       # The account's own profile.
       # @param account_id [String] The account UUID — must be the one this JWT belongs to.
-      # @return [Hash] `id`, `name`, `email`, `created_at`, `updated_at`. `email` is part of
-      #   the response because only the account's owner, or an operator, can read it.
+      # @return [Hash] `id`, `name`, `email`, `priority_tip`, `created_at`, `updated_at`.
+      #   `email` is part of the response because only the account's owner, or an operator,
+      #   can read it. `priority_tip` is the fee setting of the account's OWN transactions
+      #   (authorize, capture, void, release, refund): true, the default, tips the network's
+      #   suggested priority fee; false uses the chain's minimum tip — 0 on most chains,
+      #   25 gwei on Polygon PoS/Amoy. The buyer's dispute/close_dispute never read it.
       def get(account_id)
         http.get("/accounts/#{segment(account_id)}")
       end
@@ -40,8 +44,10 @@ module Rail0
       #
       # Only the fields passed are sent, and at least one is required: a PATCH with
       # nothing to change is a caller bug, which the gateway answers with 400 — so this
-      # raises ArgumentError first rather than spending a request on it. Both fields are
-      # UNIQUE across accounts, so a value another account already holds answers 409.
+      # raises ArgumentError first rather than spending a request on it. Name and email
+      # are UNIQUE across accounts, so a value another account already holds answers 409.
+      # `priority_tip: false` is a value, not an absence: it is sent as false and switches
+      # the account's own transactions to the chain's minimum tip; nil leaves it alone.
       #
       # This is a write on the account itself, so a deactivated wallet (403
       # wallet_deactivated) or a deactivated account (403 account_deactivated) cannot
@@ -51,13 +57,17 @@ module Rail0
       # @param account_id [String] The account UUID — must be the one this JWT belongs to.
       # @param name [String, nil] New display name (non-blank; unique across accounts).
       # @param email [String, nil] New contact email (non-blank; unique across accounts).
+      # @param priority_tip [Boolean, nil] Tip the network's suggested priority fee on the
+      #   account's own transactions (true, the gateway default) or the chain's minimum tip
+      #   (false). Owner or admin.
       # @return [Hash] the updated profile, same shape as {get}.
-      # @raise [ArgumentError] when neither name nor email is given.
-      def update(account_id, name: nil, email: nil)
+      # @raise [ArgumentError] when none of name, email or priority_tip is given.
+      def update(account_id, name: nil, email: nil, priority_tip: nil)
         body = {}
-        body[:name]  = name  unless name.nil?
-        body[:email] = email unless email.nil?
-        raise ArgumentError, "at least one of name or email is required" if body.empty?
+        body[:name]         = name         unless name.nil?
+        body[:email]        = email        unless email.nil?
+        body[:priority_tip] = priority_tip unless priority_tip.nil?
+        raise ArgumentError, "at least one of name, email or priority_tip is required" if body.empty?
 
         http.patch("/accounts/#{segment(account_id)}", body)
       end
