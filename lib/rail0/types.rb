@@ -106,7 +106,7 @@ module Rail0
     )
 
     AdminRpcHealthEndpoint = Struct.new(
-      :url,         # String — Scheme, host, port and path only.
+      :url,         # String — The endpoint, as configured.
       :ok,          # Boolean
       :status,      # String
       :error,       # String — Short `Class: first line`; never an upstream body.
