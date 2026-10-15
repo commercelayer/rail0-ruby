@@ -56,9 +56,16 @@ module Rail0
     "payer_must_be_caller" => "the payer must be the signed-in wallet — sign in as the buyer to create its payment",
     "wallet_deactivated" => "this wallet is deactivated: it can still read, but not act on payments or change the account — reactivate it or sign in with another of the account's wallets",
     "account_deactivated" => "the merchant account is deactivated: void, release and refund still work, but authorize, charge, capture and account changes do not — ask an operator to reactivate it",
+    # A session is bound to the one wallet it signed in with: the account's other wallets
+    # are readable, but not this session's to change (operators are exempt).
+    "not_your_wallet" => "a session can change only the wallet it signed in with — sign in with that wallet to update it, deactivate it or manage its tokens",
+    # POST /accounts/:id/wallets is suspended for every session until the merchant
+    # wallet-management section lands.
+    "wallet_add_unavailable" => "adding a wallet to an account is not available yet — it returns with the merchant wallet-management section",
     # Login resolves the account FROM a wallet, so an account left with no active one
-    # could neither act nor add a wallet back.
-    "last_active_wallet" => "this is the account's only active wallet — add or reactivate another wallet first, then switch this one off",
+    # could neither act nor add a wallet back. Adding a wallet is suspended and a session
+    # changes only its own wallet, so the other wallet has to be reactivated by an operator.
+    "last_active_wallet" => "this is the account's only active wallet — another wallet must be active before this one can be switched off (adding a wallet is not available yet; an operator can reactivate one)",
     "last_admin" => "the change would leave no active operator — grant the operator role to another active account first",
     "not_redrivable" => "only a pending transaction that already holds its signed bytes can be redriven — check the transaction's `redrivable` flag, and submit the signature if it has none",
     "refund_expired" => "the refund window has closed (refundExpiry passed) — refund/dispute is no longer possible",

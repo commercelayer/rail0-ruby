@@ -327,8 +327,17 @@ client.wallets.balances(account_id, id_or_address, chain_id: 84532) # live on-ch
 `delete` only deactivates (the same as `update(active: false)`; payments name the
 address, so the row stays). Either way the account's **only active wallet** is
 refused with 422 `last_active_wallet` — login resolves the account from a wallet,
-so an account with none could neither act nor add one back. Add or reactivate
-another wallet first.
+so an account with none could neither act nor add one back. Another wallet must
+be active first.
+
+**A session is bound to the wallet it signed in with.** Reads (`list`, `get`,
+`balances`) are account-wide, but `update`, `delete` and the token-holding methods
+act only on the session's own wallet: another wallet of the same account is
+refused with 403 `not_your_wallet`. An operator session is exempt.
+
+> **Adding a wallet is currently unavailable.** The gateway answers every
+> `wallets.create` with 403 `wallet_add_unavailable`. It returns with the merchant
+> wallet-management section, which keeps the request shape and the proof below.
 
 **Registering a wallet needs a SIWE proof-of-ownership of the address being
 added**, not merely the session JWT. `auth.prove_address` runs that handshake and
