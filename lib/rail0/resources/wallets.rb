@@ -11,6 +11,12 @@ module Rail0
     # with its token holdings nested under +tokens+ (a wallet with no matching
     # tokens is still returned with an empty list). +id_or_address+ accepts either
     # the wallet UUID or its 0x address (unique per account).
+    #
+    # A session is bound to the wallet it signed in with. Reads (list, get, balances)
+    # are account-wide, but update, delete and the token-holding methods act only on
+    # the session's own wallet: another wallet of the same account raises ApiError 403
+    # +not_your_wallet+ (an operator session is exempt). +create+ is suspended for
+    # every session (403 +wallet_add_unavailable+).
     class Wallets
       include Query
 
@@ -51,6 +57,10 @@ module Rail0
 
       # Add a wallet to the account.
       #
+      # CURRENTLY UNAVAILABLE: the gateway answers every session ApiError 403
+      # +wallet_add_unavailable+ until the merchant wallet-management section lands.
+      # The method and its proof shape are kept because that section reuses them.
+      #
       # Requires a SIWE PROOF-OF-OWNERSHIP of the address being added, not merely
       # the session JWT: the gateway verifies that +signature+ recovers to
       # +address+ (422 otherwise), consumes the nonce carried in +message+, and
@@ -77,9 +87,11 @@ module Rail0
         http.post("/accounts/#{segment(account_id)}/wallets", body)
       end
 
-      # Update a wallet's label and/or active status. +active: false+ on the account's
-      # only active wallet raises ApiError 422 +last_active_wallet+: login resolves the
-      # account from a wallet, so an account with none could neither act nor add one back.
+      # Update a wallet's label and/or active status. Only the wallet the session signed
+      # in with: another wallet of the account raises ApiError 403 +not_your_wallet+ (an
+      # operator may change any). +active: false+ on the account's only active wallet
+      # raises ApiError 422 +last_active_wallet+: login resolves the account from a
+      # wallet, so an account with none could neither act nor add one back.
       # @param account_id [String] Account UUID.
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @param label [String, nil] New label.
@@ -93,7 +105,8 @@ module Rail0
       end
 
       # Soft-delete (deactivate) a wallet — the same as +update(active: false)+, so the
-      # account's only active wallet raises ApiError 422 +last_active_wallet+. Returns HTTP 204.
+      # account's only active wallet raises ApiError 422 +last_active_wallet+, and another
+      # wallet than the session's own 403 +not_your_wallet+. Returns HTTP 204.
       # @param account_id [String] Account UUID.
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @return [nil]
@@ -119,6 +132,9 @@ module Rail0
       # Which tokens a wallet accepts, on which chains. This is what GET
       # /payment_methods then exposes to buyers, so a merchant onboarding flow that
       # can create a wallet but not configure its tokens cannot finish. (#12)
+      #
+      # Owner only, and only on the wallet the session signed in with: another wallet
+      # of the same account raises ApiError 403 +not_your_wallet+.
 
       # Accept a token (on a chain) on this wallet.
       #
