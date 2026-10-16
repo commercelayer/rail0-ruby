@@ -8,10 +8,11 @@ RSpec.describe "error surface" do
       .to_return(status: status, body: body.to_json, headers: { "Content-Type" => "application/json" })
   end
 
-  # The gateway answers code/title/detail. `code` is the specific condition and
-  # `status` the wider family it sits in, so reading `status` as the code — which this
-  # SDK used to do — hands a caller "invalid_state" where the gateway said
-  # "amount_exceeds_refundable", and hides exactly what went wrong.
+  # The gateway answers code/title/detail. Gateways before #252 also sent a `status`
+  # family (e.g. "invalid_state") next to the code; that family was never itself an error
+  # code, and the gateway no longer sends it. Reading `status` as the code — which this
+  # SDK used to do — would hand a caller the family where the gateway said
+  # "amount_exceeds_refundable", so the code must win when both are present.
   it "prefers code over the status family, and carries title and detail" do
     stub_error(422, {
                  code: "amount_exceeds_refundable",
