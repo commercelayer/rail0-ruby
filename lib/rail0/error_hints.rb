@@ -20,7 +20,7 @@ module Rail0
     "nothing_to_dispute" => "a dispute needs a merchant-held (refundable) balance",
     "unknown_dispute_reason" => "reason must be a dispute-reason code (Rail0::DisputeReasons.codes(:open) / codes(:close)) or exactly its bytes32 — full_refund is system-only",
     "transaction_not_overwritable" => "a transaction for this operation is already in flight — wait for it to settle",
-    "signer_mismatch" => "the signing key doesn't match the payment's payer/payee",
+    "signer_mismatch" => "the signature recovers to a different wallet than the one that must sign — the payment's payer/payee, or at POST /claim the wallet the onboarding request names",
     # The SIWE BINDING failures, split out of signer_mismatch so a failed login says
     # WHICH part of the proof did not bind (#216). None names the server's own
     # expectation: that endpoint is unauthenticated, so echoing the allow-list or the
@@ -79,6 +79,21 @@ module Rail0
     "unknown_token" => "the token isn't configured on this chain",
     "no_active_contract" => "no active RAIL0 contract on that chain",
     "missing_param" => "a required parameter is missing from the request",
+    # Onboarding: POST /signup and POST /claim (the gateway's onboarding flow).
+    # The /admin/onboardings codes (onboarding_not_found, onboarding_completed) are left
+    # out: those routes are the console's, not the SDK's. The link codes never say which
+    # term failed — a stale link has one remedy: the newest email, or a new link.
+    "signup_unavailable" => "self-service sign-up is switched off on this gateway for now — try again later, or ask your RAIL0 contact for an invite",
+    "onboarding_unavailable" => "this gateway has no onboarding secret configured, so it can neither issue nor verify sign-up links — ask the operator",
+    "email_provider_not_configured" => "the gateway has no email provider that delivers, so no link was sent and nothing was saved — ask the operator to configure one",
+    "email_domain_not_allowed" => "this environment emails only its allowed domains (the detail lists them) — use an address on one of them; nothing was saved",
+    "account_email_taken" => "an account with this email already exists — sign in with its wallet, or use another email",
+    "account_wallet_taken" => "this wallet is already registered to an account — sign in with it, or use another wallet",
+    "account_name_taken" => "an account with this name already exists — choose another name",
+    "terms_required" => "the claim needs terms_version: send the version of the terms the merchant accepted",
+    "onboarding_link_invalid" => "the link was altered or its request no longer exists — use the link in the most recent email, or ask for a new one",
+    "onboarding_link_expired" => "the link has expired — sign up again, or ask your RAIL0 contact for a new link",
+    "onboarding_link_superseded" => "a newer link was sent for this request and this one no longer works — use the link in the most recent email",
     # A BARE forbidden is not a party mismatch: the gateway split those into codes of
     # their own (not_the_payee, not_the_payer, wallet_deactivated, account_deactivated,
     # not_your_account) because they need different fixes. This entry kept describing

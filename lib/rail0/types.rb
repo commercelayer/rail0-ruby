@@ -348,20 +348,83 @@ module Rail0
       keyword_init: true
     )
 
-    # The whole account record, as an operator reads it (Full entity: GET /accounts, POST /accounts, and
-    # GET/PATCH /accounts/{account_id} for an admin session): every column plus `admin` and the derived
-    # `status`.
+    # The whole account record, as an operator reads it (Full entity: GET /accounts, and GET/PATCH
+    # /accounts/{account_id} for an admin session): every column plus `admin` and the derived `status`.
     AccountFull = Struct.new(
       :id,            # String
       :name,          # String
       :email,         # String — Stored lowercase.
       :active,        # Boolean — The operator's switch. false = deactivated.
       :priority_tip,  # Boolean — The merchant's fee setting (see Account.priority_tip).
-      :claimed_at,    # When the merchant claimed the account at POST /claim; null while it is pending its claim.
       :created_at,    # String
       :updated_at,    # String
       :admin,         # Boolean — Whether the account holds the operator grant (a row in administrators).
-      :status,        # String — One-word reading of active and claimed_at together: pending_claim (not yet claimed, not operational), active (claimed and active) or deactivated (switched off by an operator, claimed or not).
+      :status,        # String — One-word reading of active: active, or deactivated (switched off by an operator).
+      keyword_init: true
+    )
+
+    # An onboarding request (Full entity): every column plus the derived `status` and the `creator`.
+    # Never a token or a link: the token is not stored.
+    Onboarding = Struct.new(
+      :id,                 # String — Also the id of the account the claim creates.
+      :origin,             # String
+      :name,               # String
+      :email,              # String — Lowercase.
+      :address,            # String — Lowercase 0x + 40 hex.
+      :created_by,         # The operator account of an invite; null for a sign-up.
+      :link_version,       # Integer — The version of the last link minted; a link for any lower one answers onboarding_link_superseded.
+      :last_sent_at,       # String — When the last send was queued.
+      :send_count,         # Integer — Sends queued in all (0 for a request migrated from a pending account, which has no link in the current format yet).
+      :last_delivered_at,  # When the provider accepted the last send.
+      :last_send_error,    # A short fixed code for why the last send failed (provider_rejected, timeout, email_domain_not_allowed, …); null when it was delivered or is in flight.
+      :expires_at,         # String — When the last link, and the open request, expire.
+      :completed_at,       # When the claim created the account.
+      :terms_version,      # The terms version accepted at the claim.
+      :created_at,         # String
+      :updated_at,         # String
+      :status,             # String
+      :creator,            # The operator who created an invite; null for a sign-up.
+      keyword_init: true
+    )
+
+    # A clash of a request with an account (the value already belongs to it) or with another request not
+    # yet completed.
+    OnboardingConflict = Struct.new(
+      :field,  # String
+      :with,   # String
+      :id,     # String — The account's or the other request's id.
+      keyword_init: true
+    )
+
+    # The mail queued for the request — never its link, which exists only in the mail.
+    QueuedEmail = Struct.new(
+      :kind,    # String
+      :to,      # String
+      :queued,  # Boolean
+      keyword_init: true
+    )
+
+    # An operator's create, reuse or correction.
+    OnboardingOutcome = Struct.new(
+      :onboarding,  # Onboarding
+      :conflicts,   # Array
+      :email,       # QueuedEmail
+      keyword_init: true
+    )
+
+    # A resend or reminder.
+    OnboardingSent = Struct.new(
+      :onboarding,  # Onboarding
+      :email,       # QueuedEmail
+      keyword_init: true
+    )
+
+    # The mail as it would have been sent, rendered by the gateway's template with `<claim link
+    # generated after the request is created>` in place of the link.
+    EmailPreview = Struct.new(
+      :to,       # String
+      :subject,  # String
+      :text,     # String
       keyword_init: true
     )
 
@@ -414,6 +477,8 @@ module Rail0
       :siwe,          # Hash
       :fees,          # Hash
       :rpc,           # Hash
+      :onboarding,    # Hash
+      :email,         # Hash
       :generated_at,  # String
       keyword_init: true
     )

@@ -122,6 +122,18 @@ RSpec.describe "error surface" do
       end
     end
 
+    # The public onboarding codes of POST /signup and POST /claim; the console-only codes
+    # of /admin/onboardings (onboarding_completed, onboarding_not_found) stay out.
+    it "covers the public onboarding codes" do
+      %w[signup_unavailable onboarding_unavailable email_provider_not_configured
+         email_domain_not_allowed account_email_taken account_wallet_taken
+         account_name_taken terms_required onboarding_link_invalid
+         onboarding_link_expired onboarding_link_superseded].each do |code|
+        expect(Rail0.describe_error(code)).not_to be_nil, "#{code} has no hint"
+      end
+      expect(Rail0.describe_error("onboarding_completed")).to be_nil
+    end
+
     # The one fact a deactivated merchant most needs: giving money back still works.
     it "tells a deactivated account that void, release and refund still work" do
       expect(Rail0.describe_error("account_deactivated")).to include("void", "release", "refund")
