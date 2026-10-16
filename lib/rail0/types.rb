@@ -348,6 +348,23 @@ module Rail0
       keyword_init: true
     )
 
+    # The whole account record, as an operator reads it (Full entity: GET /accounts, POST /accounts, and
+    # GET/PATCH /accounts/{account_id} for an admin session): every column plus `admin` and the derived
+    # `status`.
+    AccountFull = Struct.new(
+      :id,            # String
+      :name,          # String
+      :email,         # String — Stored lowercase.
+      :active,        # Boolean — The operator's switch. false = deactivated.
+      :priority_tip,  # Boolean — The merchant's fee setting (see Account.priority_tip).
+      :claimed_at,    # When the merchant claimed the account at POST /claim; null while it is pending its claim.
+      :created_at,    # String
+      :updated_at,    # String
+      :admin,         # Boolean — Whether the account holds the operator grant (a row in administrators).
+      :status,        # String — One-word reading of active and claimed_at together: pending_claim (not yet claimed, not operational), active (claimed and active) or deactivated (switched off by an operator, claimed or not).
+      keyword_init: true
+    )
+
     # An operator grant with the people named.
     AdministratorFull = Struct.new(
       :id,          # String
@@ -379,9 +396,10 @@ module Rail0
 
     # One reported policy value.
     PolicySetting = Struct.new(
-      :value,       # The effective value (number, boolean, string, list or map).
-      :env,         # String — The environment variable that sets it; null for a constant.
-      :overridden,  # Boolean — Whether that variable is set in this process.
+      :value,        # The effective value (number, boolean, string, list or map).
+      :env,          # String — The environment variable that sets it; null for a constant.
+      :overridden,   # Boolean — Whether that variable is set in this process.
+      :description,  # String — Plain-text explanation of the entry: what it controls, which part of the gateway reads it and the effect of raising or lowering it, and its unit (from config/policy_descriptions.yml). Every entry has one; older gateways omit the field.
       keyword_init: true
     )
 
