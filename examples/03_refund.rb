@@ -32,7 +32,8 @@ refund_amount = "50.00" # human decimals, NOT base units — the gateway scales
 
 # ── Phase 1 — get the EIP-3009 signing payload ────────────────────────────────
 p1  = payee.payments.refund_prepare(PAYMENT_ID, amount: refund_amount)
-sig = Rail0::Signing.sign_payload(PAYEE_KEY, p1[:signing_payload])
+sig = Rail0::Signing.sign_signing_payload(p1[:signing_payload], PAYEE_KEY,
+                                          payment: state, amount: refund_amount)
 
 # ── Phase 2 — get the unsigned refund tx ──────────────────────────────────────
 p2  = payee.payments.refund_prepare(PAYMENT_ID, amount: refund_amount, signature: sig.to_hex)

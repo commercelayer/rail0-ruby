@@ -80,16 +80,17 @@ module Rail0
     #    transfers the contract performs, so a non-zero value is the gateway asking for ETH;
     # 3. +chain_id+ is the payment's chain;
     # 4. +from+, when present, is +signer+ (the signing key's address);
-    # 5. +to+ is the payment's +rail0_contract+ — a consistency check (the address comes
-    #    from the same gateway), but it catches a response stitched from two payments;
+    # 5. +to+ is an address and is the payment's +rail0_contract+ — a consistency check
+    #    (the address comes from the same gateway), but it catches a response stitched
+    #    from two payments, and an empty +to+ (a contract creation) always refuses;
     # 6. the 4-byte selector is the RAIL0 function for +operation+, and for capture and
     #    refund the amount word equals +amount+ scaled by the payment's +decimals+;
     # 7. the paymentId word is the payment's +rail0_id+.
     #
     # Every right-hand side is something the caller supplied or derived locally — never
     # the prepare response itself. FAIL-CLOSED on what cannot be compared: an unknown
-    # operation, a capture/refund without an +amount+, or a payment with unknown
-    # +decimals+ refuses rather than skips. Only the paymentId comparison is skipped,
+    # operation, a capture/refund without an +amount+, a payment with no
+    # +rail0_contract+ or with unknown +decimals+ refuses rather than skips. Only the paymentId comparison is skipped,
     # when the payment carries no usable +rail0_id+.
     #
     # @param unsigned_transaction [String, Hash] the prepare response's field-set
@@ -126,10 +127,34 @@ module Rail0
         refuse("transaction is prepared from #{from} but the signing key is #{signer}")
       end
 
-      to = fields["to"].to_s
-      return unless pay[:rail0_contract] && !to.empty? && !same_address?(to, pay[:rail0_contract])
+      check_to(fields["to"], pay[:rail0_contract])
+    end
 
-      refuse("transaction is addressed to #{to} but this payment's RAIL0 contract is #{pay[:rail0_contract]}")
+    # Check 5. +to+ used to be compared only when it was present: an absent, nil or ""
+    # +to+ skipped the check, and Eth::Tx signs a transaction with no recipient as a
+    # CONTRACT CREATION — the calldata becomes init code run by the signing key, which
+    # deploys whatever the gateway sent from the merchant's own account. So an empty or
+    # malformed +to+ refuses outright, and so does a payment record with no
+    # +rail0_contract+ to compare it with: every RAIL0 operation is a call to that one
+    # contract, and nothing else here can tell a legitimate recipient from a hostile one.
+    def self.check_to(to_field, rail0_contract)
+      to = to_field.to_s.strip
+      refuse("the transaction has no `to` address; signing it would deploy a contract") if to.empty?
+      refuse("the transaction's `to` #{to.inspect} is not an address") unless address?(to)
+      if rail0_contract.nil?
+        refuse("cannot check the transaction's `to` without the payment's rail0_contract " \
+               "(fetch the payment with payments.get first)")
+      end
+      return if same_address?(to, rail0_contract)
+
+      refuse("transaction is addressed to #{to} but this payment's RAIL0 contract is #{rail0_contract}")
+    end
+
+    # A 20-byte, 0x-prefixed hex address, any case (prefix included). Shared with
+    # {Rail0::PayloadVerify} and the signer, which applies it even to the deprecated
+    # blind form.
+    def self.address?(value)
+      value.is_a?(String) && value.match?(/\A0x\h{40}\z/i)
     end
 
     def self.parse(unsigned_transaction)
@@ -152,7 +177,7 @@ module Rail0
       s.empty? ? nil : s
     end
 
-    private_class_method :check_header, :parse, :payment_fields, :presence
+    private_class_method :check_header, :check_to, :parse, :payment_fields, :presence
 
     def self.refuse(message)
       raise RefusedSignature, "refusing to sign: #{message}"
@@ -197,6 +222,12 @@ module Rail0
     # String math, no Float: "1.5" at 6 decimals is "1500000". More fractional digits
     # than the token has is a refusal, not a truncation — the gateway 422s such an
     # amount, so dropping digits would compare against a figure never asked for.
+    # Public because {Rail0::PayloadVerify} scales the caller's amount the same way.
+    #
+    # @param human [String] a decimal amount as the caller typed it ("1.5")
+    # @param decimals [Integer] the token's decimals
+    # @return [String] the amount in base units
+    # @raise [RefusedSignature] when it is not a plain decimal, or is finer than +decimals+
     def self.to_base_units(human, decimals)
       s = human.strip
       refuse("amount #{human.inspect} is not a decimal number") unless s.match?(/\A\d+(\.\d+)?\z/)
@@ -208,7 +239,7 @@ module Rail0
       (whole + frac.ljust(decimals, "0")).sub(/\A0+(?=\d)/, "")
     end
 
-    private_class_method :expected_base_units, :to_base_units
+    private_class_method :expected_base_units
 
     # Asserts the call is the RAIL0 function for +operation+ and, for capture and refund,
     # that it moves exactly +want_units+ base units.

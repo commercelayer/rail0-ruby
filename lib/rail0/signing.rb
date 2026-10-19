@@ -14,6 +14,7 @@ ensure
 end
 
 require_relative "tx_verify"
+require_relative "payload_verify"
 
 module Rail0
   # EIP-712 and EIP-3009 signing utilities for RAIL0 payments.
@@ -27,7 +28,7 @@ module Rail0
   # ## Typical usage (simplest path)
   #
   #   resp = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100.00", token: "0x...", payer: "0x...", payee: "0x...")
-  #   sig  = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signing_payload])
+  #   sig  = Rail0::Signing.sign_signing_payload(resp[:signing_payload], BUYER_PRIVATE_KEY, payment: resp)
   #   client.payments.sign(resp[:rail0_id], { signature: sig.to_hex })
   #
   module Signing
@@ -63,7 +64,7 @@ module Rail0
     # DEPRECATED — the parameter object of the removed {sign_authorize} /
     # {sign_charge}. Kept only so existing code reaches those methods' migration
     # message instead of a NameError while building their arguments; nothing in this
-    # SDK consumes it. Use {sign_payload} with the gateway's `signing_payload`.
+    # SDK consumes it. Use {sign_signing_payload} with the gateway's `signing_payload`.
     SignPaymentParams = Struct.new(
       :private_key, :payment, :nonce, :contract_address, :token_domain,
       keyword_init: true
@@ -279,13 +280,22 @@ module Rail0
       f = unsigned_transaction.is_a?(String) ? JSON.parse(unsigned_transaction) : unsigned_transaction
       f = f.transform_keys(&:to_s)
 
+      # Even on the deprecated blind path: Eth::Tx treats a nil or "" `to` as a
+      # contract creation and signs it, which would have this key deploy whatever init
+      # code the gateway put in `data`. No RAIL0 operation is ever a creation.
+      unless TxVerify.address?(f["to"].to_s.strip)
+        raise TxVerify::RefusedSignature,
+              "refusing to sign: the transaction's `to` #{f['to'].inspect} is not an address " \
+              "(an empty `to` would deploy a contract)"
+      end
+
       tx = Eth::Tx.new(
         chain_id:     Integer(f.fetch("chain_id")),
         nonce:        Integer(f.fetch("nonce")),
         priority_fee: Integer(f.fetch("max_priority_fee_per_gas")),
         max_gas_fee:  Integer(f.fetch("max_fee_per_gas")),
         gas_limit:    Integer(f.fetch("gas_limit")),
-        to:           f.fetch("to"),
+        to:           "0x#{f['to'].to_s.strip[2..]}",
         value:        Integer(f["value"] || 0),
         data:         f["data"].to_s
       )
@@ -299,24 +309,79 @@ module Rail0
       "0x#{tx.hex}"
     end
 
+    # Verify, then sign, the EIP-3009 +signing_payload+ of a create, get or refund
+    # prepare response. The checked form — prefer it over the bare {sign_payload}.
+    #
+    # Before the key touches the payload, {Rail0::PayloadVerify.verify} holds it to
+    # +payment:+: +message.from+ is this key's address, +domain.chainId+ the payment's
+    # chain, +domain.verifyingContract+ its token, +message.to+ its RAIL0 contract, and
+    # +message.value+ exactly the amount — +amount:+ scaled by the payment's +decimals+
+    # when given (a refund), else the payment's stored base-unit +amount+ (the payer of a
+    # created payment). A mismatch raises {Rail0::TxVerify::RefusedSignature} naming the
+    # field, and nothing is signed. Everything compared is already in hand: no extra
+    # gateway call. The payload is then signed verbatim, as {sign_payload} does.
+    #
+    #   payment = client.payments.create(chain_id: 84532, mode: "authorize", amount: "100.00", ...)
+    #   sig = Rail0::Signing.sign_signing_payload(payment[:signing_payload], BUYER_PRIVATE_KEY,
+    #                                             payment: payment)
+    #   client.payments.sign(payment[:rail0_id], { signature: sig.to_hex })
+    #
+    #   payment = client.payments.get(rail0_id)
+    #   p1  = client.payments.refund_prepare(rail0_id, amount: "50.00")
+    #   sig = Rail0::Signing.sign_signing_payload(p1[:signing_payload], MERCHANT_PRIVATE_KEY,
+    #                                             payment: payment, amount: "50.00")
+    #
+    # The key is a private-key String, an Eth::Key, or any object responding to
+    # +#sign(digest)+ AND +#address+ — the address is what +message.from+ is checked
+    # against, so a remote signer (KMS, HSM) must expose the address it signs for.
+    #
+    # @param signing_payload [Hash] the response's +signing_payload+
+    # @param private_key [String, Eth::Key, #sign] the signer
+    # @param payment [Hash] the payment record the authorization is for
+    # @param amount [String, nil] the human decimal asked for (refund); nil = the payment's amount
+    # @return [Eip3009Signature]
+    def self.sign_signing_payload(signing_payload, private_key, payment:, amount: nil)
+      signer = signer_for(private_key)
+      unless signer.respond_to?(:address)
+        raise ArgumentError,
+              "the checked signer needs the key's address to compare with the authorization's `from`: " \
+              "pass a key String or Eth::Key, or a signer responding to #address"
+      end
+
+      PayloadVerify.verify(signing_payload, payment: payment, signer: signer.address.to_s, amount: amount)
+      sign_verbatim(signer, signing_payload)
+    end
+
     # Sign the EIP-3009 payload using the signing_payload returned by POST /payments.
     #
-    # This is the simplest entry point: pass the full signing_payload from the create response
-    # and a private key — all fields are read directly from the payload without any manual
-    # reconstruction. (The payload's inner domain/message keep EIP-712 camelCase — chainId,
+    # All fields are read directly from the payload without any manual reconstruction.
+    # (The payload's inner domain/message keep EIP-712 camelCase — chainId,
     # verifyingContract, validAfter, validBefore — which this reads directly.)
     #
-    #   resp = client.payments.create(
-    #     chain_id: 84532, mode: "authorize",
-    #     amount: "100.00", token: "0x...", payer: "0x...", payee: "0x..."
-    #   )
-    #   sig = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, resp[:signing_payload])
-    #   client.payments.sign(resp[:rail0_id], { signature: sig.to_hex })
+    # With +payment:+ it is {sign_signing_payload}: the payload is VERIFIED against the
+    # payment first. Without it the payload is signed BLINDLY — a compromised or
+    # misconfigured endpoint could have this key sign an authorization the token honours
+    # on its own, for any amount up to the key's balance. That form is DEPRECATED (a
+    # +:deprecated+ warning is emitted; enable them with +Warning[:deprecated] = true+ or
+    # +-W:deprecated+) and will be removed in the next major version.
     #
-    # @param private_key [String] Payer's private key (0x-prefixed hex).
+    # @param private_key [String, Eth::Key, #sign] Signer (a private key, 0x-prefixed hex).
     # @param signing_payload [Hash] The signingPayload hash from the create response.
+    # @param payment [Hash, nil] The payment record the authorization is for.
+    # @param amount [String, nil] The human decimal asked for (refund).
     # @return [Eip3009Signature]
-    def self.sign_payload(private_key, signing_payload)
+    def self.sign_payload(private_key, signing_payload, payment: nil, amount: nil)
+      return sign_signing_payload(signing_payload, private_key, payment: payment, amount: amount) if payment || amount
+
+      warn("Rail0::Signing.sign_payload without payment: signs the gateway's authorization blindly " \
+           "and is deprecated; use sign_signing_payload(signing_payload, key, payment:) so it is " \
+           "verified first", uplevel: 1, category: :deprecated)
+      sign_verbatim(private_key, signing_payload)
+    end
+
+    # Signs a payload exactly as the gateway built it: domain, typehash (from its own
+    # primaryType, never guessed) and message fields all come from the payload.
+    def self.sign_verbatim(private_key, signing_payload)
       payload = symbolize(signing_payload)
       d = symbolize(payload[:domain])
       m = symbolize(payload[:message])
@@ -342,9 +407,11 @@ module Rail0
       )
     end
 
+    private_class_method :sign_verbatim
+
     # Sign a raw EIP-3009 transferWithAuthorization message.
     #
-    # For RAIL0 payment flows prefer {sign_payload} which reads all fields from the
+    # For RAIL0 payment flows prefer {sign_signing_payload} which reads all fields from the
     # API-returned signingPayload. Use this method only when you need full control over
     # the message fields (e.g. integrating with a contract directly).
     #
@@ -368,7 +435,7 @@ module Rail0
       )
     end
 
-    # REMOVED — see {sign_payload}.
+    # REMOVED — see {sign_signing_payload}.
     #
     # These two rebuilt the EIP-3009 digest from a payment record: they read
     # from/value/validBefore off the payment, hardcoded `validAfter = 0` and `to =
@@ -389,7 +456,8 @@ module Rail0
       "Rail0::Signing.%s was removed: it rebuilt the EIP-3009 digest from a payment " \
       "record, which signs the WRONG digest as soon as the contract's payload changes " \
       "(rail0#58 moves authorize/charge to ReceiveWithAuthorization). Use " \
-      "Rail0::Signing.sign_payload(private_key, create_response[:signing_payload]) — " \
+      "Rail0::Signing.sign_signing_payload(create_response[:signing_payload], private_key, " \
+      "payment: create_response) — " \
       "the gateway builds the payload, clients sign it verbatim."
     private_constant :REMOVED_MESSAGE
 

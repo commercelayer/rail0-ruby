@@ -78,7 +78,9 @@ payment = client.payments.create(
 rail0_id = payment[:rail0_id]
 
 # 2. Payer signs the EIP-3009 payload off-chain and deposits the signature.
-sig = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, payment[:signing_payload])
+#    payment: is what the authorization is CHECKED against before the key signs it
+#    (see "What sign_signing_payload verifies").
+sig = Rail0::Signing.sign_signing_payload(payment[:signing_payload], BUYER_PRIVATE_KEY, payment: payment)
 client.payments.sign(rail0_id, { signature: sig.to_hex })
 
 # 3. Payee prepares + broadcasts the on-chain authorize tx (signs it locally).
@@ -126,20 +128,45 @@ otherwise have that key sign anything — an `approve(spender, MAX)` on the toke
 `payment:` (the record from `payments.get`) and `operation:`, `sign_transaction` checks
 the transaction **before** the key touches it, against data you already hold (no extra
 request): `value` is zero (every RAIL0 operation is value-0), `chain_id` is the
-payment's chain, `from` is your key's address, `to` is the payment's `rail0_contract`,
+payment's chain, `from` is your key's address, `to` is an address and is the payment's
+`rail0_contract` (an empty or missing `to` — which would sign a contract creation — is
+always refused, even by the deprecated blind form),
 the 4-byte selector is the RAIL0 function for `operation:` (the selectors are derived
 from the contract's function signatures, `Rail0::TxVerify::SELECTORS`, and pinned
 against its ABI in the spec suite), the first calldata word is the payment's `rail0_id`,
 and — for `capture` and `refund` — the amount word equals `amount:` scaled by the
 payment's `decimals`. The first mismatch raises `Rail0::TxVerify::RefusedSignature`
 ("refusing to sign: …", naming the field) and no signature is produced. It fails closed:
-a capture/refund with no `amount:`, or a payment with unknown `decimals`, is refused
-rather than skipped. `to` is a consistency check only — the address comes from the same
+a capture/refund with no `amount:`, or a payment with no `rail0_contract` or unknown
+`decimals`, is refused rather than skipped. `to` is a consistency check only — the address comes from the same
 gateway — which is why the calldata binding to this payment's id and operation is what
 closes a swapped transaction. Calling `sign_transaction` without `payment:` still signs
 blindly and is **deprecated** (a `:deprecated`-category warning; shown with
 `-W:deprecated`). `Rail0::TxVerify.verify` runs the check on its own, for a signer that
 is not a local key.
+
+**What `sign_signing_payload` verifies, and why.** The EIP-3009 authorization the payer
+signs after `create` (and the payee signs in refund phase 1) is the more dangerous of the
+two artifacts: the **token** honours it on its own, with no RAIL0 involvement, for up to
+its `value` — so an endpoint that answered with `{from: you, to: attacker, value: your
+whole balance}` used to get exactly that signed. `sign_signing_payload(signing_payload,
+key, payment:, amount: nil)` checks it first, against data you already hold:
+`message.from` is your key's address, `domain.chainId` the payment's `chain_id`,
+`domain.verifyingContract` the payment's `token`, `message.to` its `rail0_contract`, and
+`message.value` **exactly** the amount — `amount:` scaled by the payment's `decimals` when
+you pass one (a refund), otherwise the payment's own base-unit `amount` (a created
+payment). The first mismatch raises `Rail0::TxVerify::RefusedSignature` ("refusing to
+sign: …", naming the field) and nothing is signed. It fails closed: a payment record
+missing `chain_id`, `token`, `rail0_contract` or an amount to compare is refused, and so
+are unknown `decimals` and an amount finer than the token's. The payload is still signed
+verbatim (typehash from its own `primaryType`). Not checked, as in the CLI: the validity
+window and `message.nonce` (recomputing it needs the deployment's `VERSION()`, which no
+payment response carries), and `to` and the decimals come from the same gateway. The
+residual is an authorization for the right token, chain and signer, for exactly the
+amount you asked. `sign_payload(key, signing_payload)` without `payment:` still signs
+blindly and is **deprecated** (`:deprecated`-category warning); with `payment:` it is
+`sign_signing_payload`. `Rail0::PayloadVerify.verify(signing_payload, payment:, signer:,
+amount: nil)` runs the check on its own.
 
 Wallets that sign **and** broadcast in one step (e.g. MetaMask via
 `eth_sendTransaction`) skip steps 2–3 and report the hash instead:
@@ -488,8 +515,11 @@ transactions, so a bulk action can skip busy rows without a `get(id)` each.
 
 ```ruby
 # Phase 1 — amount only → returns a signing payload for the payee to sign.
+#           The authorization is checked against the payment and the refund amount
+#           (payment = client.payments.get(rail0_id)) before the key signs it.
 p1  = client.payments.refund_prepare(rail0_id, amount: "20.00")
-sig = Rail0::Signing.sign_payload(MERCHANT_PRIVATE_KEY, p1[:signing_payload])
+sig = Rail0::Signing.sign_signing_payload(p1[:signing_payload], MERCHANT_PRIVATE_KEY,
+                                          payment: payment, amount: "20.00")
 
 # Phase 2 — amount + signature → returns the unsigned on-chain tx.
 p2  = client.payments.refund_prepare(rail0_id, amount: "20.00", signature: sig.to_hex)
@@ -795,18 +825,25 @@ Requires the `eth` gem. No private key ever leaves your process.
 
 | Method | Use |
 |--------|-----|
-| `sign_payload(signer, signing_payload)` | Sign the EIP-3009 payload from a create/refund response — the recommended path, and the only one that follows the gateway across contract versions |
+| `sign_signing_payload(signing_payload, signer, payment:, amount: nil)` | Verify the EIP-3009 payload from a create/refund response against the payment, then sign it verbatim — the recommended path, and the only one that follows the gateway across contract versions |
+| `sign_payload(signer, signing_payload, payment: nil, amount: nil)` | The same signer; with `payment:` it is `sign_signing_payload`, without it signs blindly (**deprecated**) |
+| `Rail0::PayloadVerify.verify(signing_payload, payment:, signer:, amount: nil)` | The payload pre-sign check on its own |
 | `sign_transaction(unsigned_transaction, key, payment:, operation:, amount: nil)` | Verify a prepare step's unsigned EIP-1559 transaction against the payment, then sign it; returns the 0x raw tx. Without `payment:` it signs blindly (**deprecated**) |
 | `Rail0::TxVerify.verify(unsigned_transaction, payment:, operation:, amount: nil, signer: nil)` | The pre-sign check on its own — for a signer that is not a local key |
 | `sign_transfer_with_authorization(signer, domain, params)` | Raw EIP-3009 `TransferWithAuthorization` signer, for talking to a token directly |
 
 ```ruby
 require "rail0/signing"
-sig = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, payment[:signing_payload])
-client.payments.sign(rail0_id, { signature: sig.to_hex })
+payment = client.payments.create(chain_id: 84532, mode: "authorize", amount: "50.00", token: TOKEN,
+                                 payer: BUYER, payee: MERCHANT)
+sig = Rail0::Signing.sign_signing_payload(payment[:signing_payload], BUYER_PRIVATE_KEY, payment: payment)
+client.payments.sign(payment[:rail0_id], { signature: sig.to_hex })
+# A hostile payload — another `to`, a larger `value`, another token — raises instead:
+#   Rail0::TxVerify::RefusedSignature: refusing to sign: the authorization is for
+#   999999999999 base units but you asked for 50000000
 ```
 
-**The gateway builds the payload; you sign it verbatim.** `sign_payload` takes the
+**The gateway builds the payload; you sign it verbatim.** `sign_signing_payload` takes the
 typehash from the payload's `primaryType` and every field from its `message` — only
 the gateway knows which contract version a payment lives on, and the version selects
 the typehash, the EIP-712 domain and the field layout. An unrecognised `primaryType`
@@ -818,19 +855,23 @@ digest from a payment record. They raise with a pointer here.
 
 ### Signing without a raw key
 
-`sign_payload` and `sign_transfer_with_authorization` accept a private-key String,
-an `Eth::Key`, or **any object responding to `#sign(digest)`** that returns a
-65-byte hex signature — a KMS or HSM client, a remote signer, a hardware-wallet
+`sign_signing_payload`, `sign_payload` and `sign_transfer_with_authorization` accept a
+private-key String, an `Eth::Key`, or **any object responding to `#sign(digest)`** that
+returns a 65-byte hex signature — a KMS or HSM client, a remote signer, a hardware-wallet
 bridge. The SDK builds the EIP-712 digest and hands only that over, so the secret
 need never be materialised as a String in your process:
 
 ```ruby
 class KmsSigner
   def sign(digest) = MyKms.sign(key_id: KEY_ID, digest: digest)  # -> "0x…" (65 bytes)
+  def address = KMS_KEY_ADDRESS  # what message.from is checked against
 end
 
-sig = Rail0::Signing.sign_payload(KmsSigner.new, payment[:signing_payload])
+sig = Rail0::Signing.sign_signing_payload(payment[:signing_payload], KmsSigner.new, payment: payment)
 ```
+
+The checked form needs the signer's address to compare with the authorization's `from`,
+so a custom signer must also respond to `#address` (an `ArgumentError` says so otherwise).
 
 `sign_transaction` is narrower on purpose: `Eth::Tx#sign` derives an EIP-155 `v`
 from the chain id, so it needs a full `Eth::Key` (a String or an `Eth::Key`), not a
@@ -977,6 +1018,8 @@ lib/rail0/
   backoff.rb           Rail0::Backoff — retry delays and 429 jitter
   webhook_signature.rb Rail0::WebhookSignature — delivery verification
   signing.rb           EIP-3009 + EIP-1559 signing (requires 'eth')
+  tx_verify.rb         Rail0::TxVerify — pre-sign check of an unsigned transaction
+  payload_verify.rb    Rail0::PayloadVerify — pre-sign check of an EIP-3009 signing payload
   stablecoins.rb       stablecoin address registry
   dispute_reasons.rb   generated Rail0::DisputeReasons — the dispute-reason dictionary
   types.rb             generated Struct docs of the gateway schema (reference only)

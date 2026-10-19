@@ -80,6 +80,20 @@ module Rail0
     "unknown_token" => "the token isn't configured on this chain",
     "no_active_contract" => "no active RAIL0 contract on that chain",
     "missing_param" => "a required parameter is missing from the request",
+    # Ported from rail0-go / rail0-ts, which carried these five and this table did not.
+    "validation_failed" => "a parameter is invalid — the error detail names the offending field",
+    "invalid_sort" => "that field cannot be sorted on — the error detail names the allowed set",
+    "rate_limited" => "rate limit reached — wait for Retry-After (the time left in the window) and retry",
+    "event_not_found" => "the reported transaction mined but did not perform this operation on this payment — nothing moved; check the hash and prepare the operation again",
+    "submission_timeout" => "the transaction was not mined in time and was recorded as failed — if it mines later, re-report its hash via the operation's submitted endpoint",
+    # From the gateway's error catalog (lib/rail0/error_catalog.rb).
+    "invalid_signature" => "the signature could not be recovered — it is malformed, truncated or has a bad recovery byte; send the 65-byte 0x hex (r || s || v) the signer produced",
+    "nonce_used" => "that sign-in nonce was already consumed — request a fresh one (auth.nonce); each is single-use",
+    "siwe_purpose_mismatch" => "the signed message's statement is for a different flow — login, wallet registration, account claim and revoke-all each need their own exact statement",
+    "transaction_mismatch" => "the submitted transaction's target, calldata, value or chain differs from the one this operation prepared — sign the prepare's unsigned_transaction unmodified",
+    "signing_payload_unavailable" => "the gateway could not build the payer's authorization payload because a chain read failed — retry in a moment (payments.get returns it once available)",
+    "queue_unavailable" => "the gateway's job queue could not be reached, so nothing was enqueued — retry in a moment",
+    "webhook_limit_reached" => "this account already holds the most webhook subscriptions it may have — delete one, or add topics to an existing subscription",
     # Onboarding: POST /signup and POST /claim (the gateway's onboarding flow).
     # The /admin/onboardings codes (onboarding_not_found, onboarding_completed) are left
     # out: those routes are the console's, not the SDK's. The link codes never say which
