@@ -63,8 +63,10 @@ sig = Rail0::Signing.sign_payload(PAYER_KEY, payment[:signing_payload])
 payer.payments.sign(rail0_id, { signature: sig.to_hex })
 
 # ── Step 3 — payee prepares, signs, and broadcasts the charge tx ──────────────
-prep = payee.payments.charge_prepare(rail0_id)
-raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYEE_KEY)
+payment = payee.payments.get(rail0_id)
+prep    = payee.payments.charge_prepare(rail0_id)
+raw     = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYEE_KEY,
+                                          payment: payment, operation: "charge")
 payee.payments.charge(rail0_id, { signed_transaction: raw })
 puts "Charge submitted (202). Polling…"
 

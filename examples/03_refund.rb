@@ -36,7 +36,8 @@ sig = Rail0::Signing.sign_payload(PAYEE_KEY, p1[:signing_payload])
 
 # ── Phase 2 — get the unsigned refund tx ──────────────────────────────────────
 p2  = payee.payments.refund_prepare(PAYMENT_ID, amount: refund_amount, signature: sig.to_hex)
-raw = Rail0::Signing.sign_transaction(p2[:unsigned_transaction], PAYEE_KEY)
+raw = Rail0::Signing.sign_transaction(p2[:unsigned_transaction], PAYEE_KEY,
+                                      payment: state, operation: "refund", amount: refund_amount)
 
 # ── Submit + poll ─────────────────────────────────────────────────────────────
 payee.payments.refund(PAYMENT_ID, { signed_transaction: raw })

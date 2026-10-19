@@ -63,8 +63,12 @@ sig = Rail0::Signing.sign_payload(PAYER_KEY, payment[:signing_payload])
 payer.payments.sign(rail0_id, { signature: sig.to_hex })
 
 # ── Step 3 — payee prepares, signs, and broadcasts the authorize tx ───────────
-prep = payee.payments.authorize_prepare(rail0_id)
-raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYEE_KEY)
+# payment:/operation: are what the gateway's transaction is checked against BEFORE the
+# key signs it; the record from `payments.get` carries chain, contract, id and decimals.
+payment = payee.payments.get(rail0_id)
+prep    = payee.payments.authorize_prepare(rail0_id)
+raw     = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYEE_KEY,
+                                          payment: payment, operation: "authorize")
 payee.payments.authorize(rail0_id, { signed_transaction: raw })
 puts "Authorize submitted (202). Polling…"
 
@@ -85,7 +89,8 @@ puts "Authorized. capturable_amount: #{capturable}"
 
 # ── Step 5 — payee captures (partial capture shown: 50 of 100 USDC) ───────────
 cap = payee.payments.capture_prepare(rail0_id, "50.00") # human decimals too
-raw = Rail0::Signing.sign_transaction(cap[:unsigned_transaction], PAYEE_KEY)
+raw = Rail0::Signing.sign_transaction(cap[:unsigned_transaction], PAYEE_KEY,
+                                      payment: payment, operation: "capture", amount: "50.00")
 payee.payments.capture(rail0_id, { signed_transaction: raw })
 
 loop do

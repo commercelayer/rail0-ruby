@@ -29,8 +29,10 @@ client = Rail0::Client.new(
 # reason is optional: a code from Rail0::DisputeReasons.codes(:open), or exactly its
 # bytes32 — omit it to open the dispute with no reason ("No reason given"). Any other
 # value is refused 422 unknown_dispute_reason.
-prep = client.payments.dispute_prepare(PAYMENT_ID, reason: "not_received")
-raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYER_KEY)
+payment = client.payments.get(PAYMENT_ID)
+prep    = client.payments.dispute_prepare(PAYMENT_ID, reason: "not_received")
+raw     = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYER_KEY,
+                                          payment: payment, operation: "dispute")
 client.payments.dispute(PAYMENT_ID, { signed_transaction: raw })
 puts "Dispute submitted (202). Polling…"
 
@@ -54,7 +56,8 @@ end
 # ── Close the dispute (e.g. after resolving it off-platform) ──────────────────
 # reason is optional here too: a code from Rail0::DisputeReasons.codes(:close), or omit it.
 prep = client.payments.close_dispute_prepare(PAYMENT_ID, reason: "resolved_with_merchant")
-raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYER_KEY)
+raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], PAYER_KEY,
+                                       payment: payment, operation: "close_dispute")
 client.payments.close_dispute(PAYMENT_ID, { signed_transaction: raw })
 
 loop do
