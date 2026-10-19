@@ -59,7 +59,7 @@ rail0_id = payment[:rail0_id]
 puts "Payment created: #{rail0_id}"
 
 # ── Step 2 — payer signs the EIP-3009 payload and deposits the signature ──────
-sig = Rail0::Signing.sign_payload(PAYER_KEY, payment[:signing_payload])
+sig = Rail0::Signing.sign_signing_payload(payment[:signing_payload], PAYER_KEY, payment: payment)
 payer.payments.sign(rail0_id, { signature: sig.to_hex })
 
 # ── Step 3 — payee prepares, signs, and broadcasts the charge tx ──────────────

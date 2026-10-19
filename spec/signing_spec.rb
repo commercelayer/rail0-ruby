@@ -206,10 +206,10 @@ RSpec.describe Rail0::Signing do
     # typehash, so rail0#58 (authorize/charge → ReceiveWithAuthorization) would have
     # made them sign a digest the token refuses, while reporting success. They raise
     # with the migration path rather than being deleted outright.
-    it "raise with a message pointing at sign_payload" do
+    it "raise with a message pointing at sign_signing_payload" do
       %i[sign_authorize sign_charge].each do |method|
         expect { Rail0::Signing.public_send(method, nil) }
-          .to raise_error(NotImplementedError, /sign_payload/)
+          .to raise_error(NotImplementedError, /sign_signing_payload/)
       end
     end
 
