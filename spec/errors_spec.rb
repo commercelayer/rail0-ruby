@@ -121,6 +121,26 @@ RSpec.describe "error surface" do
       end
     end
 
+    # The five rail0-go and rail0-ts carried and this table did not (2026-10-19).
+    it "covers the request-shape and submission codes the other SDKs had" do
+      %w[validation_failed invalid_sort rate_limited event_not_found submission_timeout].each do |code|
+        expect(Rail0.describe_error(code)).not_to be_nil, "#{code} has no hint"
+      end
+      expect(Rail0.describe_error("rate_limited")).to include("Retry-After")
+      expect(Rail0.describe_error("event_not_found")).to include("nothing moved")
+    end
+
+    # Codes in the gateway's error catalog with no hint here until 2026-10-19.
+    it "covers the gateway catalog's signing, sign-in, queue and webhook codes" do
+      %w[webhook_limit_reached queue_unavailable invalid_signature siwe_purpose_mismatch
+         transaction_mismatch nonce_used signing_payload_unavailable].each do |code|
+        expect(Rail0.describe_error(code)).not_to be_nil, "#{code} has no hint"
+      end
+      expect(Rail0.describe_error("transaction_mismatch")).to include("unmodified")
+      expect(Rail0.describe_error("nonce_used")).to include("fresh")
+      expect(Rail0.describe_error("queue_unavailable")).to include("nothing was enqueued")
+    end
+
     # Codes the gateway split out of generic 403/422s, each needing a different next step.
     it "covers the party, deactivation and redrive codes" do
       %w[account_deactivated wallet_deactivated release_submitter_not_a_party
