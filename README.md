@@ -211,8 +211,8 @@ auth = client.auth.login(private_key: "0x…", domain: "api.rail0.xyz")
 # admin is always a boolean (verify too): true only for an account holding the
 # operator grant, false otherwise (visibility only). account_id/name are nil for an
 # account-less session.
-# login embeds chain_id 1 by default; pass chain_id: to match a gateway whose
-# SIWE_CHAIN_ID policy differs (e.g. login(private_key:, domain:, chain_id: 5042002)).
+# login embeds chain_id 1 by default; the gateway also accepts the id of any chain it
+# has active (GET /blockchains), e.g. login(private_key:, domain:, chain_id: 5042002).
 
 authed = Rail0::Client.new(
   base_url: "https://api.rail0.xyz",

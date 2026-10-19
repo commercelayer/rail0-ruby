@@ -132,9 +132,9 @@ module Rail0
       #
       # @param private_key [String] 0x-prefixed hex private key of the account wallet.
       # @param domain      [String] Host of the API server (e.g. "api.rail0.xyz").
-      # @param chain_id    [Integer] Chain ID to embed in the SIWE message. Must match
-      #   the gateway's SIWE_CHAIN_ID policy (default 1); override only when the
-      #   gateway is configured with a different login chain.
+      # @param chain_id    [Integer] Chain ID to embed in the SIWE message (default 1).
+      #   The gateway accepts 1 or the id of any chain it has active (GET /blockchains);
+      #   anything else is refused with 422 siwe_chain_mismatch.
       # @return [Hash] { token:, address:, account_id:, name:, expires_at:, admin: }
       def login(private_key:, domain:, chain_id: 1)
         message, signature = sign_proof(private_key, domain, chain_id, LOGIN_STATEMENT)
