@@ -13,6 +13,8 @@ ensure
   $VERBOSE = original_verbose
 end
 
+require_relative "tx_verify"
+
 module Rail0
   # EIP-712 and EIP-3009 signing utilities for RAIL0 payments.
   #
@@ -233,15 +235,47 @@ module Rail0
     # (chain id, nonce, to, value, data, gas, fees) and the client assembles and
     # signs the transaction locally.
     #
-    #   tx  = client.payments.authorize_prepare(rail0_id)
-    #   raw = Rail0::Signing.sign_transaction(tx[:unsigned_transaction], PAYER_PRIVATE_KEY)
-    #   client.payments.authorize(rail0_id, { signed_transaction: raw })
+    # With +payment:+ and +operation:+ the transaction is VERIFIED before the key
+    # touches it ({Rail0::TxVerify.verify}): zero value, the payment's chain and RAIL0
+    # contract, the key's own address as +from+, the RAIL0 function for +operation+,
+    # this payment's id in the calldata and — for capture and refund — the +amount:+ you
+    # asked for, scaled by the payment's +decimals+. A mismatch raises
+    # {Rail0::TxVerify::RefusedSignature} naming the field, and nothing is signed.
+    # Everything compared is already in hand, so this adds no gateway call.
+    #
+    #   payment = client.payments.get(rail0_id)   # chain_id, rail0_contract, rail0_id, decimals
+    #   tx  = client.payments.capture_prepare(rail0_id, "50.00")
+    #   raw = Rail0::Signing.sign_transaction(tx[:unsigned_transaction], PAYEE_PRIVATE_KEY,
+    #                                         payment: payment, operation: "capture", amount: "50.00")
+    #   client.payments.capture(rail0_id, { signed_transaction: raw })
+    #
+    # Without +payment:+ the transaction is signed BLINDLY — a compromised or
+    # misconfigured endpoint could have this key sign an arbitrary transaction. That
+    # form is DEPRECATED (a +:deprecated+ warning is emitted; enable them with
+    # +Warning[:deprecated] = true+ or +-W:deprecated+) and will be removed in the next
+    # major version.
     #
     # @param unsigned_transaction [String, Hash] The +unsigned_transaction+ JSON
     #   string from a prepare response (a pre-parsed Hash is also accepted).
-    # @param private_key [String] Signer's private key (0x-prefixed or raw hex).
+    # @param private_key [String, Eth::Key] Signer's private key (0x-prefixed or raw hex).
+    # @param payment [Hash, nil] The payment record the transaction is for.
+    # @param operation [String, Symbol, nil] The operation the prepare was called for.
+    # @param amount [String, nil] The human decimal passed to the prepare (capture/refund).
     # @return [String] 0x-prefixed RLP-encoded signed transaction.
-    def self.sign_transaction(unsigned_transaction, private_key)
+    def self.sign_transaction(unsigned_transaction, private_key, payment: nil, operation: nil, amount: nil)
+      key = private_key.is_a?(Eth::Key) ? private_key : Eth::Key.new(priv: private_key.delete_prefix("0x"))
+
+      if payment || operation
+        # Before the transaction is even assembled: one that fails the check must
+        # leave no signature behind.
+        TxVerify.verify(unsigned_transaction, payment: payment, operation: operation,
+                                              amount: amount, signer: key.address.to_s)
+      else
+        warn("Rail0::Signing.sign_transaction without payment:/operation: signs the gateway's " \
+             "transaction blindly and is deprecated; pass the payment record and the operation " \
+             "so it is verified first", uplevel: 1, category: :deprecated)
+      end
+
       f = unsigned_transaction.is_a?(String) ? JSON.parse(unsigned_transaction) : unsigned_transaction
       f = f.transform_keys(&:to_s)
 
@@ -261,7 +295,7 @@ module Rail0
       # digest signature), so an arbitrary #sign(digest) object cannot serve here.
       # An Eth::Key is accepted so a caller holding one doesn't have to export it
       # back to a String.
-      tx.sign(private_key.is_a?(Eth::Key) ? private_key : Eth::Key.new(priv: private_key.delete_prefix("0x")))
+      tx.sign(key)
       "0x#{tx.hex}"
     end
 

@@ -82,8 +82,12 @@ sig = Rail0::Signing.sign_payload(BUYER_PRIVATE_KEY, payment[:signing_payload])
 client.payments.sign(rail0_id, { signature: sig.to_hex })
 
 # 3. Payee prepares + broadcasts the on-chain authorize tx (signs it locally).
-prep = client.payments.authorize_prepare(rail0_id)
-raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], MERCHANT_PRIVATE_KEY)
+#    payment:/operation: are what the gateway's transaction is CHECKED against before
+#    the key signs it (see "Payment lifecycle"); `payment` is the record read from the gateway.
+payment = client.payments.get(rail0_id)
+prep    = client.payments.authorize_prepare(rail0_id)
+raw     = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], MERCHANT_PRIVATE_KEY,
+                                          payment: payment, operation: "authorize")
 client.payments.authorize(rail0_id, { signed_transaction: raw })   # HTTP 202 (async)
 
 # 4. Poll until the authorization confirms.
@@ -95,7 +99,8 @@ end
 
 # 5. Payee captures the escrowed funds (partial capture is supported).
 cap = client.payments.capture_prepare(rail0_id, "50.00")
-raw = Rail0::Signing.sign_transaction(cap[:unsigned_transaction], MERCHANT_PRIVATE_KEY)
+raw = Rail0::Signing.sign_transaction(cap[:unsigned_transaction], MERCHANT_PRIVATE_KEY,
+                                      payment: payment, operation: "capture", amount: "50.00")
 client.payments.capture(rail0_id, { signed_transaction: raw })
 ```
 
@@ -108,11 +113,33 @@ Each on-chain operation is a `prepare` → `submit` pair:
 
 1. **prepare** — `client.payments.<op>_prepare(...)` returns a transaction whose
    `unsigned_transaction` is the EIP-1559 field-set to sign.
-2. **sign** — `Rail0::Signing.sign_transaction(unsigned, private_key)` returns the
-   signed raw tx.
+2. **sign** — `Rail0::Signing.sign_transaction(unsigned, private_key, payment:, operation:, amount:)`
+   verifies the transaction against the payment record, then returns the signed raw tx.
 3. **submit** — `client.payments.<op>(id, { signed_transaction: raw })` broadcasts
    it. The gateway acknowledges with HTTP 202 and confirms asynchronously — poll
    `client.payments.get(id)` until the status settles.
+
+**What `sign_transaction` verifies, and why.** The gateway builds the EIP-1559
+transaction and your key signs it, so a compromised or misconfigured endpoint could
+otherwise have that key sign anything — an `approve(spender, MAX)` on the token, a
+`capture` answered to a `void` prepare, a capture for more than you asked. Given
+`payment:` (the record from `payments.get`) and `operation:`, `sign_transaction` checks
+the transaction **before** the key touches it, against data you already hold (no extra
+request): `value` is zero (every RAIL0 operation is value-0), `chain_id` is the
+payment's chain, `from` is your key's address, `to` is the payment's `rail0_contract`,
+the 4-byte selector is the RAIL0 function for `operation:` (the selectors are derived
+from the contract's function signatures, `Rail0::TxVerify::SELECTORS`, and pinned
+against its ABI in the spec suite), the first calldata word is the payment's `rail0_id`,
+and — for `capture` and `refund` — the amount word equals `amount:` scaled by the
+payment's `decimals`. The first mismatch raises `Rail0::TxVerify::RefusedSignature`
+("refusing to sign: …", naming the field) and no signature is produced. It fails closed:
+a capture/refund with no `amount:`, or a payment with unknown `decimals`, is refused
+rather than skipped. `to` is a consistency check only — the address comes from the same
+gateway — which is why the calldata binding to this payment's id and operation is what
+closes a swapped transaction. Calling `sign_transaction` without `payment:` still signs
+blindly and is **deprecated** (a `:deprecated`-category warning; shown with
+`-W:deprecated`). `Rail0::TxVerify.verify` runs the check on its own, for a signer that
+is not a local key.
 
 Wallets that sign **and** broadcast in one step (e.g. MetaMask via
 `eth_sendTransaction`) skip steps 2–3 and report the hash instead:
@@ -466,7 +493,8 @@ sig = Rail0::Signing.sign_payload(MERCHANT_PRIVATE_KEY, p1[:signing_payload])
 
 # Phase 2 — amount + signature → returns the unsigned on-chain tx.
 p2  = client.payments.refund_prepare(rail0_id, amount: "20.00", signature: sig.to_hex)
-raw = Rail0::Signing.sign_transaction(p2[:unsigned_transaction], MERCHANT_PRIVATE_KEY)
+raw = Rail0::Signing.sign_transaction(p2[:unsigned_transaction], MERCHANT_PRIVATE_KEY,
+                                      payment: payment, operation: "refund", amount: "20.00")
 client.payments.refund(rail0_id, { signed_transaction: raw })
 ```
 
@@ -479,12 +507,15 @@ pattern. Like the rest of `/payments` they need a session, but the payer's
 account-less SIWE login is enough:
 
 ```ruby
+payment = client.payments.get(rail0_id)
 prep = client.payments.dispute_prepare(rail0_id, reason: "not_received") # reason optional
-raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], BUYER_PRIVATE_KEY)
+raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], BUYER_PRIVATE_KEY,
+                                       payment: payment, operation: "dispute")
 client.payments.dispute(rail0_id, { signed_transaction: raw })
 # … later …
 prep = client.payments.close_dispute_prepare(rail0_id, reason: "withdrawn") # or omit reason:
-raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], BUYER_PRIVATE_KEY)
+raw  = Rail0::Signing.sign_transaction(prep[:unsigned_transaction], BUYER_PRIVATE_KEY,
+                                       payment: payment, operation: "close_dispute")
 client.payments.close_dispute(rail0_id, { signed_transaction: raw })
 ```
 
@@ -765,7 +796,8 @@ Requires the `eth` gem. No private key ever leaves your process.
 | Method | Use |
 |--------|-----|
 | `sign_payload(signer, signing_payload)` | Sign the EIP-3009 payload from a create/refund response — the recommended path, and the only one that follows the gateway across contract versions |
-| `sign_transaction(unsigned_transaction, key)` | Sign a prepare step's unsigned EIP-1559 transaction; returns the 0x raw tx |
+| `sign_transaction(unsigned_transaction, key, payment:, operation:, amount: nil)` | Verify a prepare step's unsigned EIP-1559 transaction against the payment, then sign it; returns the 0x raw tx. Without `payment:` it signs blindly (**deprecated**) |
+| `Rail0::TxVerify.verify(unsigned_transaction, payment:, operation:, amount: nil, signer: nil)` | The pre-sign check on its own — for a signer that is not a local key |
 | `sign_transfer_with_authorization(signer, domain, params)` | Raw EIP-3009 `TransferWithAuthorization` signer, for talking to a token directly |
 
 ```ruby
