@@ -279,13 +279,22 @@ module Rail0
       f = unsigned_transaction.is_a?(String) ? JSON.parse(unsigned_transaction) : unsigned_transaction
       f = f.transform_keys(&:to_s)
 
+      # Even on the deprecated blind path: Eth::Tx treats a nil or "" `to` as a
+      # contract creation and signs it, which would have this key deploy whatever init
+      # code the gateway put in `data`. No RAIL0 operation is ever a creation.
+      unless TxVerify.address?(f["to"].to_s.strip)
+        raise TxVerify::RefusedSignature,
+              "refusing to sign: the transaction's `to` #{f['to'].inspect} is not an address " \
+              "(an empty `to` would deploy a contract)"
+      end
+
       tx = Eth::Tx.new(
         chain_id:     Integer(f.fetch("chain_id")),
         nonce:        Integer(f.fetch("nonce")),
         priority_fee: Integer(f.fetch("max_priority_fee_per_gas")),
         max_gas_fee:  Integer(f.fetch("max_fee_per_gas")),
         gas_limit:    Integer(f.fetch("gas_limit")),
-        to:           f.fetch("to"),
+        to:           "0x#{f['to'].to_s.strip[2..]}",
         value:        Integer(f["value"] || 0),
         data:         f["data"].to_s
       )

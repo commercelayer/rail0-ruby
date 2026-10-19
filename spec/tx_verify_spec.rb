@@ -172,12 +172,41 @@ RSpec.describe Rail0::TxVerify do
         .to raise_error(Rail0::TxVerify::RefusedSignature, /without the payment/)
     end
 
-    it "skips what the payment record cannot support, but never the value check" do
-      expect { verify(unsigned, pay: {}, signer_address: nil) }.not_to raise_error
-      expect { verify(unsigned(value: 1), pay: {}, signer_address: nil) }
+    it "skips what the payment record cannot support, but never the value or `to` check" do
+      bare = { rail0_contract: contract }
+      expect { verify(unsigned, pay: bare, signer_address: nil) }.not_to raise_error
+      expect { verify(unsigned(value: 1), pay: bare, signer_address: nil) }
         .to raise_error(Rail0::TxVerify::RefusedSignature, /attaches native currency/)
       ["", "0x", "not-an-id", "0xabc", nil].each do |id|
-        expect { verify(unsigned, pay: { rail0_id: id }) }.not_to raise_error
+        expect { verify(unsigned, pay: bare.merge(rail0_id: id)) }.not_to raise_error
+      end
+    end
+
+    # S1: an empty `to` used to SKIP the contract comparison, and Eth::Tx signs a
+    # transaction with no recipient as a contract creation — the calldata would run as
+    # init code deployed from the merchant's key.
+    [nil, "", "  "].each do |to|
+      it "refuses a transaction with no recipient (to: #{to.inspect}), which would deploy a contract" do
+        expect { verify(unsigned(to: to)) }
+          .to raise_error(Rail0::TxVerify::RefusedSignature, /\Arefusing to sign: .*no `to` address.*deploy a contract/)
+      end
+    end
+
+    it "refuses a transaction with the `to` key absent altogether" do
+      tx = JSON.parse(unsigned).except("to")
+      expect { verify(tx) }.to raise_error(Rail0::TxVerify::RefusedSignature, /no `to` address/)
+    end
+
+    ["0x1234", "2222222222222222222222222222222222222222", "0x#{'g' * 40}", 42].each do |to|
+      it "refuses a `to` that is not an address: #{to.inspect}" do
+        expect { verify(unsigned(to: to)) }.to raise_error(Rail0::TxVerify::RefusedSignature, /is not an address/)
+      end
+    end
+
+    it "requires the payment's rail0_contract instead of skipping the `to` comparison" do
+      [payment.except(:rail0_contract), payment.merge(rail0_contract: ""), payment.merge(rail0_contract: nil)].each do |pay|
+        expect { verify(unsigned, pay: pay) }
+          .to raise_error(Rail0::TxVerify::RefusedSignature, /without the payment's rail0_contract/)
       end
     end
 
@@ -208,6 +237,26 @@ RSpec.describe Rail0::TxVerify do
     # A :deprecated-category warning: silent by default (Ruby 2.7.2+), shown under
     # -W:deprecated or Warning[:deprecated] = true — so the blind form keeps working
     # quietly for existing callers while saying what it is to anyone who asks.
+    # The blind form skips TxVerify, so the signer refuses a contract creation itself.
+    [nil, "", "0x"].each do |to|
+      it "refuses to sign a contract creation (to: #{to.inspect}) even in the blind form" do
+        was = Warning[:deprecated]
+        Warning[:deprecated] = false
+        expect { Rail0::Signing.sign_transaction(unsigned(to: to), VERIFY_KEY) }
+          .to raise_error(Rail0::TxVerify::RefusedSignature, /\Arefusing to sign: .*not an address/)
+        expect { Rail0::Signing.sign_transaction(JSON.parse(unsigned).except("to"), VERIFY_KEY) }
+          .to raise_error(Rail0::TxVerify::RefusedSignature, /not an address/)
+      ensure
+        Warning[:deprecated] = was
+      end
+    end
+
+    it "signs an upper-case 0X recipient as the same transaction as the lower-case one" do
+      upper = Rail0::Signing.sign_transaction(unsigned(to: contract.upcase), VERIFY_KEY,
+                                              payment: payment, operation: "void")
+      expect(upper).to eq(Rail0::Signing.sign_transaction(unsigned, VERIFY_KEY, payment: payment, operation: "void"))
+    end
+
     it "warns, as a :deprecated category warning, when called blind" do
       was = Warning[:deprecated]
       Warning[:deprecated] = true
