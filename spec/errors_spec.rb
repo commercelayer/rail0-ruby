@@ -74,6 +74,14 @@ RSpec.describe "error surface" do
       expect(Rail0.describe_error("not_the_payee")).to include("merchant")
     end
 
+    # gateway#426 widened SIWE chain-id acceptance to 1 plus every active catalog chain,
+    # so the hint points there instead of "the chain id the client library sends".
+    it "points siwe_chain_mismatch at chain id 1 or an active chain" do
+      hint = Rail0.describe_error("siwe_chain_mismatch")
+      expect(hint).to include("chain id 1", "GET /blockchains", "deactivated")
+      expect(hint).not_to include("nominal")
+    end
+
     it "returns nil for an unknown or empty code" do
       expect(Rail0.describe_error("brand_new_condition")).to be_nil
       expect(Rail0.describe_error(nil)).to be_nil
