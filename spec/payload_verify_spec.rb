@@ -20,13 +20,25 @@ RSpec.describe Rail0::PayloadVerify do
   CLI_ATTACKER = "0x4444444444444444444444444444444444444444"
   CLI_CONTRACT = "0x2222222222222222222222222222222222222222"
 
-  # The CLI's testPayload(nil).
+  # `types` as the gateway emits them (Rail0::Eip3009#typed_data).
+  def gateway_types(primary_type = "ReceiveWithAuthorization")
+    {
+      EIP712Domain: [{ name: "name", type: "string" }, { name: "version", type: "string" },
+                     { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" }],
+      primary_type.to_sym => [{ name: "from", type: "address" }, { name: "to", type: "address" },
+                              { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" },
+                              { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" }]
+    }
+  end
+
+  # The CLI's testPayload(nil), with the gateway's types.
   def payload(from: CLI_SIGNER, **overrides)
     domain  = { name: "USD Coin", version: "2", chainId: CLI_CHAIN, verifyingContract: CLI_TOKEN }
     message = { from: from, to: CLI_CONTRACT, value: "1000000", validAfter: "0", validBefore: "2000000000",
                 nonce: "0x#{'ab' * 32}" }
     {
-      primaryType: "ReceiveWithAuthorization",
+      primaryType: overrides.fetch(:primaryType, "ReceiveWithAuthorization"),
+      types: overrides.fetch(:types) { gateway_types(overrides.fetch(:primaryType, "ReceiveWithAuthorization")) },
       domain: domain.merge(overrides.fetch(:domain, {})),
       message: message.merge(overrides.fetch(:message, {}))
     }
@@ -116,6 +128,78 @@ RSpec.describe Rail0::PayloadVerify do
       expect { verify(nil) }.to refusal(/no signing payload/)
       expect { verify(payload.except(:message)) }.to refusal(/no message object/)
       expect { verify(payload.merge(domain: "x")) }.to refusal(/no domain object/)
+    end
+  end
+
+  # The typed-data envelope. Signing.sign_payload hashes with fixed typehashes, but a
+  # browser wallet hashes whatever `types` says: each tampering is refused before either.
+  describe ".verify: the typed-data envelope" do
+    def with_fields(name, primary_type = "ReceiveWithAuthorization")
+      types = gateway_types(primary_type)
+      types[name.to_sym] = yield(types[name.to_sym].map(&:dup))
+      payload(types: types)
+    end
+
+    it "accepts the gateway's own payload (produced by Rail0::Eip3009#typed_data)" do
+      gateway = JSON.parse(File.read(File.expand_path("fixtures/gateway_signing_payload.json", __dir__)))
+      expect { verify(gateway, signer: PV_SIGNER) }.not_to raise_error
+      expect { Rail0::Signing.sign_signing_payload(gateway, PV_KEY, payment: payment) }.not_to raise_error
+    end
+
+    it "accepts TransferWithAuthorization (pre-1.4.0 deployments) and an absent EIP712Domain" do
+      expect { verify(payload(primaryType: "TransferWithAuthorization")) }.not_to raise_error
+      expect { verify(payload(types: gateway_types.except(:EIP712Domain))) }.not_to raise_error
+    end
+
+    {
+      "an unknown primaryType" =>
+        [-> { payload(primaryType: "Permit") }, /primaryType "Permit" is not an EIP-3009 authorization type/],
+      "a primaryType with no definition in types" =>
+        [-> { payload(primaryType: "TransferWithAuthorization", types: gateway_types) },
+         /types define "ReceiveWithAuthorization", which an EIP-3009 authorization does not use/],
+      "reordered fields" =>
+        [-> { with_fields(:ReceiveWithAuthorization) { |f| [f[1], f[0], *f[2..]] } },
+         /types\.ReceiveWithAuthorization is \(address to,address from,/],
+      "a renamed field" =>
+        [-> { with_fields(:ReceiveWithAuthorization) { |f| f.tap { f[1] = { name: "recipient", type: "address" } } } },
+         /address recipient.* but must be exactly \(address from,address to,uint256 value,/],
+      "a changed field type" =>
+        [-> { with_fields(:ReceiveWithAuthorization) { |f| f.tap { f[2] = { name: "value", type: "uint128" } } } },
+         /uint128 value/],
+      "an extra field" =>
+        [-> { with_fields(:ReceiveWithAuthorization) { |f| f + [{ name: "spender", type: "address" }] } },
+         /address spender\) but must be exactly/],
+      "a missing field" =>
+        [-> { with_fields(:ReceiveWithAuthorization) { |f| f[0..4] } }, /types\.ReceiveWithAuthorization is \(/],
+      "an extra key on a field" =>
+        [-> { with_fields(:ReceiveWithAuthorization) { |f| f.tap { f[0] = f[0].merge(note: "x") } } },
+         /types\.ReceiveWithAuthorization is \(/],
+      "an extra type definition" =>
+        [-> { payload(types: gateway_types.merge(Transfer: [{ name: "to", type: "address" }])) },
+         /types define "Transfer"/],
+      "a wrong EIP712Domain" =>
+        [-> { with_fields(:EIP712Domain) { |f| f + [{ name: "salt", type: "bytes32" }] } },
+         /types\.EIP712Domain is \(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt\) but must be exactly \(string name,string version,uint256 chainId,address verifyingContract\)/],
+      "an EIP712Domain without version" =>
+        [-> { with_fields(:EIP712Domain) { |f| [f[0], f[2], f[3]] } },
+         /types\.EIP712Domain is \(string name,uint256 chainId,address verifyingContract\)/],
+      "no types" => [-> { payload(types: nil) }, /the signing payload has no types/],
+      "empty types" => [-> { payload(types: {}) }, /types\.ReceiveWithAuthorization is \(null\)/],
+      "fields that are not a list" =>
+        [-> { payload(types: { ReceiveWithAuthorization: "address from" }) },
+         /types\.ReceiveWithAuthorization is \("address from"\)/]
+    }.each do |name, (build, message)|
+      it "refuses: #{name}" do
+        expect { verify(instance_exec(&build)) }.to refusal(message)
+        # String-keyed, as JSON.parse hands it over, is judged the same.
+        expect { verify(JSON.parse(instance_exec(&build).to_json)) }.to refusal(message)
+        signer = Class.new do
+          def address = CLI_SIGNER
+          def sign(_digest) = raise("the key was asked to sign")
+        end.new
+        expect { Rail0::Signing.sign_signing_payload(instance_exec(&build), signer, payment: payment) }
+          .to refusal(message)
+      end
     end
   end
 
