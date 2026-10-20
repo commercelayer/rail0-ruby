@@ -150,8 +150,16 @@ signs after `create` (and the payee signs in refund phase 1) is the more dangero
 two artifacts: the **token** honours it on its own, with no RAIL0 involvement, for up to
 its `value` — so an endpoint that answered with `{from: you, to: attacker, value: your
 whole balance}` used to get exactly that signed. `sign_signing_payload(signing_payload,
-key, payment:, amount: nil)` checks it first, against data you already hold:
-`message.from` is your key's address, `domain.chainId` the payment's `chain_id`,
+key, payment:, amount: nil)` checks it first. The typed-data envelope: `primaryType` is
+`ReceiveWithAuthorization` (authorize/charge on v1.4.0+ deployments, and every refund) or
+`TransferWithAuthorization` (authorize/charge on v1.1.0–v1.3.x); `types[primaryType]` is
+**exactly** the EIP-3009 struct — `address from, address to, uint256 value, uint256
+validAfter, uint256 validBefore, bytes32 nonce`, same names, types and order;
+`types.EIP712Domain`, when present, is exactly `string name, string version, uint256
+chainId, address verifyingContract`; and `types` defines nothing else (a local key hashes
+with fixed typehashes, but a browser wallet hashes whatever `types` says, so this is what
+lets `PayloadVerify.verify` guard an `eth_signTypedData_v4` call). Then, against data you
+already hold: `message.from` is your key's address, `domain.chainId` the payment's `chain_id`,
 `domain.verifyingContract` the payment's `token`, `message.to` its `rail0_contract`, and
 `message.value` **exactly** the amount — `amount:` scaled by the payment's `decimals` when
 you pass one (a refund), otherwise the payment's own base-unit `amount` (a created
@@ -827,7 +835,7 @@ Requires the `eth` gem. No private key ever leaves your process.
 |--------|-----|
 | `sign_signing_payload(signing_payload, signer, payment:, amount: nil)` | Verify the EIP-3009 payload from a create/refund response against the payment, then sign it verbatim — the recommended path, and the only one that follows the gateway across contract versions |
 | `sign_payload(signer, signing_payload, payment: nil, amount: nil)` | The same signer; with `payment:` it is `sign_signing_payload`, without it signs blindly (**deprecated**) |
-| `Rail0::PayloadVerify.verify(signing_payload, payment:, signer:, amount: nil)` | The payload pre-sign check on its own |
+| `Rail0::PayloadVerify.verify(signing_payload, payment:, signer:, amount: nil)` | The payload pre-sign check on its own — run it before handing the payload to a browser wallet |
 | `sign_transaction(unsigned_transaction, key, payment:, operation:, amount: nil)` | Verify a prepare step's unsigned EIP-1559 transaction against the payment, then sign it; returns the 0x raw tx. Without `payment:` it signs blindly (**deprecated**) |
 | `Rail0::TxVerify.verify(unsigned_transaction, payment:, operation:, amount: nil, signer: nil)` | The pre-sign check on its own — for a signer that is not a local key |
 | `sign_transfer_with_authorization(signer, domain, params)` | Raw EIP-3009 `TransferWithAuthorization` signer, for talking to a token directly |
@@ -846,7 +854,8 @@ client.payments.sign(payment[:rail0_id], { signature: sig.to_hex })
 **The gateway builds the payload; you sign it verbatim.** `sign_signing_payload` takes the
 typehash from the payload's `primaryType` and every field from its `message` — only
 the gateway knows which contract version a payment lives on, and the version selects
-the typehash, the EIP-712 domain and the field layout. An unrecognised `primaryType`
+the typehash and the EIP-712 domain (the field layout is EIP-3009's own, the same on
+every version, which is why the check pins it). An unrecognised `primaryType`
 raises rather than falling back, because a guessed typehash yields a *valid*
 signature over the wrong digest, which fails only on-chain, after gas.
 

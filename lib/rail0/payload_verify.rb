@@ -27,10 +27,17 @@ module Rail0
   # 5. +message.value+ is EXACTLY the amount asked for, in base units — not a ceiling:
   #    the gateway asks for the full amount of the operation.
   #
+  # Before those, the typed-data envelope: +primaryType+ is one of the two EIP-3009
+  # authorization types, +types[primaryType]+ is EXACTLY the EIP-3009 field list (names,
+  # types, order), +types.EIP712Domain+ (when present) is exactly the token domain's
+  # field list, and +types+ defines nothing else. {Signing.sign_payload} hashes with
+  # fixed typehashes and would not notice, but a browser wallet hashes whatever +types+
+  # says — so a caller that verifies here and then hands the payload to
+  # +eth_signTypedData_v4+ needs it.
+  #
   # The payload is still signed VERBATIM: the typehash comes from its own +primaryType+
   # and the digest from its own message. This only refuses a message whose fields
-  # contradict what the caller asked for. Like the CLI, it does not check +primaryType+
-  # against the contract version (the signer already refuses an unknown one), the
+  # contradict what the caller asked for. Like the CLI, it does not check the
   # validity window, or +message.nonce+ — recomputing the nonce needs the deployment's
   # VERSION(), which no payment response carries. The bounded residual is an
   # authorization for the RIGHT token, on the RIGHT chain, from the RIGHT signer, for
@@ -62,6 +69,7 @@ module Rail0
       pay = payment_fields(payment)
       refuse("cannot check the authorization without the address of the signing key") if blank?(signer)
 
+      check_typed_data(sp[:primaryType], sp[:types])
       check_from(message[:from], signer.to_s)
       check_chain(domain[:chainId], pay[:chain_id])
       check_address(domain[:verifyingContract], pay[:token], "token") do |got, want|
@@ -90,6 +98,73 @@ module Rail0
     end
 
     private_class_method :parse, :payment_fields
+
+    # The EIP-3009 authorization types the gateway emits. Which one a payment needs is the
+    # deployment's contract version, which no payment response carries: 1.4.0 and later
+    # use ReceiveWithAuthorization for authorize/charge, 1.1.0–1.3.x used
+    # TransferWithAuthorization, and refunds are ReceiveWithAuthorization on every
+    # version. So both are accepted and nothing else is.
+    PRIMARY_TYPES = %w[TransferWithAuthorization ReceiveWithAuthorization].freeze
+
+    # The EIP-3009 struct shared by both types: names, types AND order are the typehash.
+    AUTHORIZATION_FIELDS = [
+      %w[from address], %w[to address], %w[value uint256],
+      %w[validAfter uint256], %w[validBefore uint256], %w[nonce bytes32]
+    ].freeze
+
+    # The token's EIP-712 domain, as the gateway declares it and the token hashes it.
+    DOMAIN_FIELDS = [
+      %w[name string], %w[version string], %w[chainId uint256], %w[verifyingContract address]
+    ].freeze
+
+    private_constant :PRIMARY_TYPES, :AUTHORIZATION_FIELDS, :DOMAIN_FIELDS
+
+    # The typed-data envelope: refuses an unknown +primaryType+, a +types[primaryType]+
+    # that differs from the EIP-3009 struct in any name, type or position, an
+    # +EIP712Domain+ that differs from the token domain, or any further type.
+    def self.check_typed_data(primary_type, types)
+      unless PRIMARY_TYPES.include?(primary_type)
+        refuse("the authorization's primaryType #{primary_type.inspect} is not an EIP-3009 authorization type " \
+               "(TransferWithAuthorization or ReceiveWithAuthorization)")
+      end
+      refuse("the signing payload has no types") unless types.is_a?(Hash)
+
+      types = types.transform_keys(&:to_s)
+      extra = types.keys.find { |name| name != primary_type && name != "EIP712Domain" }
+      if extra
+        refuse("the signing payload's types define #{extra.inspect}, which an EIP-3009 authorization does not use")
+      end
+      check_type_fields("types.#{primary_type}", types[primary_type], AUTHORIZATION_FIELDS)
+      check_type_fields("types.EIP712Domain", types["EIP712Domain"], DOMAIN_FIELDS) if types.key?("EIP712Domain")
+    end
+
+    def self.check_type_fields(label, fields, want)
+      return if exact_fields?(fields, want)
+
+      expected = want.map { |name, type| "#{type} #{name}" }.join(",")
+      refuse("#{label} is (#{describe_fields(fields)}) but must be exactly (#{expected})")
+    end
+
+    def self.describe_fields(fields)
+      return (fields.nil? ? "null" : fields.inspect) unless fields.is_a?(Array)
+
+      fields.map { |f| f.is_a?(Hash) ? "#{field_of(f, 'type')} #{field_of(f, 'name')}" : f.inspect }.join(",")
+    end
+
+    def self.exact_fields?(fields, want)
+      fields.is_a?(Array) && fields.size == want.size &&
+        fields.each_with_index.all? do |f, i|
+          f.is_a?(Hash) && f.size == 2 && field_of(f, "name") == want[i][0] && field_of(f, "type") == want[i][1]
+        end
+    end
+
+    # A field entry's +name+ / +type+, whether the payload arrived string- or
+    # symbol-keyed.
+    def self.field_of(field, key)
+      field.key?(key) ? field[key] : field[key.to_sym]
+    end
+
+    private_class_method :check_typed_data, :check_type_fields, :describe_fields, :exact_fields?, :field_of
 
     # Check 1: from = the key's own address. An absent +from+ is a mismatch, not a skip.
     def self.check_from(from, signer)

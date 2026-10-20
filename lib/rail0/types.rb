@@ -457,17 +457,17 @@ module Rail0
       keyword_init: true
     )
 
-    # One reported policy value.
-    PolicySetting = Struct.new(
+    # One reported configuration value.
+    ConfigSetting = Struct.new(
       :value,        # The effective value (number, boolean, string, list or map).
       :env,          # String — The environment variable that sets it; null for a constant.
       :overridden,   # Boolean — Whether that variable is set in this process.
-      :description,  # String — Plain-text explanation of the entry: what it controls, which part of the gateway reads it and the effect of raising or lowering it, and its unit (from config/policy_descriptions.yml). Every entry has one; older gateways omit the field.
+      :description,  # String — Plain-text explanation of the entry: what it controls, which part of the gateway reads it and the effect of raising or lowering it, and its unit (from config/config_descriptions.yml). Every entry has one; older gateways omit the field.
       keyword_init: true
     )
 
-    # GET /admin/policy: the effective policy, grouped. Every leaf is a PolicySetting.
-    PolicyReport = Struct.new(
+    # GET /admin/config: the effective configuration, grouped. Every leaf is a ConfigSetting.
+    ConfigReport = Struct.new(
       :payments,      # Hash
       :recovery,      # Hash
       :retention,     # Hash
