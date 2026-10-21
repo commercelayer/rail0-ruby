@@ -143,11 +143,19 @@ RSpec.describe "error surface" do
 
     # Codes the gateway split out of generic 403/422s, each needing a different next step.
     it "covers the party, deactivation and redrive codes" do
-      %w[account_deactivated wallet_deactivated release_submitter_not_a_party
-         not_redrivable payer_must_be_caller last_active_wallet last_admin
-         not_your_wallet wallet_add_unavailable].each do |code|
+      %w[account_deactivated wallet_deactivated wallet_deactivated_by_operator
+         release_submitter_not_a_party not_redrivable payer_must_be_caller
+         last_active_wallet last_admin not_your_wallet wallet_add_unavailable].each do |code|
         expect(Rail0.describe_error(code)).not_to be_nil, "#{code} has no hint"
       end
+    end
+
+    # gateway#439: the owner's own session switches its wallet back on; only an
+    # operator's switch-off sends the caller to an operator.
+    it "describes who may switch a wallet back on" do
+      expect(Rail0.describe_error("wallet_deactivated")).to include("switch it back on")
+      expect(Rail0.describe_error("wallet_deactivated_by_operator"))
+        .to include("ask an operator to reactivate it")
     end
 
     # The public onboarding codes of POST /signup and POST /claim; the console-only codes

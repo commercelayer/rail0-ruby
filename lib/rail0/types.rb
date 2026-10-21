@@ -209,10 +209,11 @@ module Rail0
 
     # Public-safe wallet view (the reduced set a buyer needs to discover a merchant's payment methods).
     Wallet = Struct.new(
-      :id,       # String
-      :address,  # String
+      :id,              # String
+      :address,         # String
       :label,
-      :active,   # Boolean
+      :active,          # Boolean
+      :deactivated_by,  # Who switched the wallet off: `owner` (a session signed in with this wallet) or `operator` (an admin session). Null while active, and on a switch-off that predates the record — treated as `operator`. A wallet an operator switched off can be switched back on only by an operator (403 `wallet_deactivated_by_operator`). Always null on GET /payment_methods, which serves active wallets only.
       keyword_init: true
     )
 
@@ -474,7 +475,8 @@ module Rail0
       :webhooks,      # Hash
       :settlement,    # Hash
       :rate_limit,    # Hash
-      :siwe,          # Hash
+      :siwe,          # Hash — domains (SIWE_DOMAIN), accepted_chain_ids (1 plus the ids of the active catalog chains: the chainId values a login may carry) and nonce_ttl.
+      :session,       # Hash — environment (RAIL0_ENVIRONMENT, default RACK_ENV: the scope every issued token is bound to), jwt_ttl and jwt_audience: the session token's lifetime (a constant) and audience (`rail0-gateway:<environment>`).
       :fees,          # Hash
       :rpc,           # Hash
       :onboarding,    # Hash
@@ -530,19 +532,6 @@ module Rail0
       :payment_id,        # String — Protocol-level rail0_id.
       :chain_id,          # Integer
       :contract_address,  # String — Address (lowercase) of the RAIL0 deployment the payment is bound to, archived versions included. The sweeper accepts a receipt's event only when this contract emitted it.
-      keyword_init: true
-    )
-
-    # Per-chain indexer config.
-    SyncBlockchain = Struct.new(
-      :chain_id,                # Integer
-      :start_block,             # Integer
-      :required_confirmations,  # Integer — Fallback burial depth, used where the chain serves no finality tag.
-      :finality_tag,            # String — Which block the chain calls settled; the indexer gates every notify on it.
-      :explorer_url,            # Block explorer base URL; null when the chain has none.
-      :network_type,            # String — "testnet" or "mainnet"; selects which chains a deployment indexes.
-      :rpc_urls,                # Array — Ordered list of public RPC endpoints tried in turn (serial fallback).
-      :contracts,               # Array — Active RAIL0 contract addresses on the chain (all watched versions).
       keyword_init: true
     )
   end

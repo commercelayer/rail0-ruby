@@ -382,6 +382,7 @@ client.wallets.list(account_id, token_active: true)
 
 client.wallets.get(account_id, id_or_address)
 client.wallets.update(account_id, id_or_address, label: "Renamed", active: false)
+client.wallets.update(account_id, id_or_address, active: true)      # back on (see below)
 client.wallets.delete(account_id, id_or_address)                    # 204
 client.wallets.balances(account_id, id_or_address, chain_id: 84532) # live on-chain balances
 ```
@@ -391,6 +392,17 @@ address, so the row stays). Either way the account's **only active wallet** is
 refused with 422 `last_active_wallet` — login resolves the account from a wallet,
 so an account with none could neither act nor add one back. Another wallet must
 be active first.
+
+**Switching a wallet back on.** Every switch-off records who did it in the wallet's
+`deactivated_by`: `"owner"` (a session signed in with that wallet) or `"operator"`
+(an operator session); `nil` while active, and on a switch-off older than the record.
+A deactivated wallet's session is read-only (403 `wallet_deactivated`) except for one
+write: `update(account_id, id, active: true)` on its **own** wallet, which switches it
+back on when its owner switched it off. A wallet an operator switched off (or with
+`deactivated_by: nil`) raises 403 `wallet_deactivated_by_operator`: an operator's
+switch-off revokes the key, so only an operator lifts it. The flip side: a wallet its
+owner switched off can be switched back on by whoever holds its key, so a definitive
+revocation (a leaked key) must come from an operator.
 
 **A session is bound to the wallet it signed in with.** Reads (`list`, `get`,
 `balances`) are account-wide, but `update`, `delete` and the token-holding methods

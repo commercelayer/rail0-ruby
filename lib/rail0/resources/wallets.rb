@@ -92,11 +92,16 @@ module Rail0
       # operator may change any). +active: false+ on the account's only active wallet
       # raises ApiError 422 +last_active_wallet+: login resolves the account from a
       # wallet, so an account with none could neither act nor add one back.
+      #
+      # +active: true+ is the one write a deactivated wallet's own session may make: it
+      # switches the wallet back on when its owner switched it off. A wallet an operator
+      # switched off (+deactivated_by+ "operator", or nil on an older switch-off) raises
+      # ApiError 403 +wallet_deactivated_by_operator+: only an operator lifts it.
       # @param account_id [String] Account UUID.
       # @param id_or_address [String] Wallet UUID or 0x address.
       # @param label [String, nil] New label.
       # @param active [Boolean, nil] New active status.
-      # @return [Hash] id, address, label, active
+      # @return [Hash] id, address, label, active, deactivated_by
       def update(account_id, id_or_address, label: nil, active: nil)
         body = {}
         body[:label]  = label  unless label.nil?
