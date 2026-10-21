@@ -230,11 +230,12 @@ module Rail0
     # A wallet with its token holdings nested inline. `tokens` is empty when the wallet has none — the
     # wallet is still returned, never omitted.
     WalletWithTokens = Struct.new(
-      :id,       # String
-      :address,  # String
+      :id,              # String
+      :address,         # String
       :label,
-      :active,   # Boolean
-      :tokens,   # Array
+      :active,          # Boolean
+      :deactivated_by,  # Who switched the wallet off: `owner` (a session signed in with this wallet) or `operator` (an admin session). Null while active, and on a switch-off that predates the record — treated as `operator`. A wallet an operator switched off can be switched back on only by an operator (403 `wallet_deactivated_by_operator`). Always null on GET /payment_methods, which serves active wallets only.
+      :tokens,          # Array
       keyword_init: true
     )
 
