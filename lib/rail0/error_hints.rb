@@ -55,7 +55,10 @@ module Rail0
     "not_payer_or_payee" => "only the payer or the payee may do this",
     "release_submitter_not_a_party" => "a release must be sent by the payment's payer or payee — omit `from` to build it for the signed-in wallet",
     "payer_must_be_caller" => "the payer must be the signed-in wallet — sign in as the buyer to create its payment",
-    "wallet_deactivated" => "this wallet is deactivated: it can still read, but not act on payments or change the account — reactivate it or sign in with another of the account's wallets",
+    # gateway#439: a deactivated session may switch its OWN wallet back on when its owner
+    # switched it off; an operator's switch-off is the operator's to lift.
+    "wallet_deactivated" => "this wallet is deactivated: it can still read, but not act on payments or change the account — if you switched it off, its own session can switch it back on (wallets.update(..., active: true)), or sign in with another of the account's wallets",
+    "wallet_deactivated_by_operator" => "an operator deactivated this wallet, so only an operator can reactivate it — ask an operator to reactivate it",
     "account_deactivated" => "the merchant account is deactivated: void, release and refund still work, but authorize, charge, capture and account changes do not — ask an operator to reactivate it",
     # A session is bound to the one wallet it signed in with: the account's other wallets
     # are readable, but not this session's to change (operators are exempt).
@@ -65,8 +68,9 @@ module Rail0
     "wallet_add_unavailable" => "adding a wallet to an account is not available yet — it returns with the merchant wallet-management section",
     # Login resolves the account FROM a wallet, so an account left with no active one
     # could neither act nor add a wallet back. Adding a wallet is suspended and a session
-    # changes only its own wallet, so the other wallet has to be reactivated by an operator.
-    "last_active_wallet" => "this is the account's only active wallet — another wallet must be active before this one can be switched off (adding a wallet is not available yet; an operator can reactivate one)",
+    # changes only its own wallet, so the other wallet comes back on from its own session
+    # (if its owner switched it off) or from an operator (gateway#439).
+    "last_active_wallet" => "this is the account's only active wallet — another wallet must be active before this one can be switched off: sign in with one you switched off and reactivate it, or ask an operator (adding a wallet is not available yet)",
     "last_admin" => "the change would leave no active operator — grant the operator role to another active account first",
     "not_redrivable" => "only a pending transaction that already holds its signed bytes can be redriven — check the transaction's `redrivable` flag, and submit the signature if it has none",
     "refund_expired" => "the refund window has closed (refundExpiry passed) — refund/dispute is no longer possible",
