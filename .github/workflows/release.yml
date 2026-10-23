@@ -1,104 +1,270 @@
-# Publish the rail0-sdk gem to RubyGems.org when a GitHub release is published.
+# Release the rail0-sdk gem when an approved release pull request merges.
 #
-# Trusted Publishing (OIDC): RubyGems.org trusts THIS workflow file in THIS repo, so no
-# API key exists anywhere — not in the repo's secrets, not on a laptop — and no OTP
-# prompt interrupts a release. It works only after a gem owner registers the trusted
-# publisher on rubygems.org: rail0-sdk → Trusted publishers → GitHub Actions, with
-# repository `commercelayer/rail0-ruby` and workflow `release.yml` (no environment).
+# Releasing is three steps:
+#   1. bin/release-prepare opens "chore(release): vX.Y.Z", which bumps Rail0::VERSION
+#      (and Gemfile.lock) and carries the release notes in its body;
+#   2. a reviewer approves it and it is merged;
+#   3. this workflow, on that push to main: plan → gate (ci.yml on the release commit)
+#      → gem push → tag vX.Y.Z + GitHub release → Slack.
 #
-# Releasing:
-#   1. merge a PR that bumps Rail0::VERSION in lib/rail0/version.rb (e.g. 1.2.0);
-#   2. publish a GitHub release whose tag is that version with a `v` (v1.2.0), on main.
-# The tag must match Rail0::VERSION, or the run fails before anything is published.
+# Why on merge, not on a published GitHub release: a release used to be a second, manual
+# and unreviewed act (draft a release, type a tag) after the version PR merged, and
+# nothing stopped a tag on the wrong commit. Now the reviewed pull request IS the
+# release, and the tag is created only by this workflow, only after RubyGems.org
+# accepted the gem. A push that does not change the version is a no-op (plan stops).
+# `rake release` (tag + push + gem push from a laptop) is disabled in the Rakefile.
 #
-# `release` runs the workflow as it exists IN THE TAGGED COMMIT, so a tag on a commit
-# that predates this file publishes nothing on its own. workflow_dispatch takes the TAG
-# as an input and runs from main: it checks out that tag and publishes it. That is how a
-# release cut before this workflow existed (v1.1.0) gets published, and how a failed run
-# is retried. (Dispatching ON the tag would not work for such a tag: the file must
-# exist at the ref a dispatch runs.)
+# Order: publish FIRST, tag after. A failed push leaves no tag, so the release is
+# simply retried; a failed tag/release step after a successful push is resumed by
+# "Run workflow" (workflow_dispatch, main only): plan sees the version on RubyGems.org
+# without its tag and does only what is missing.
 #
-# Not `rubygems/release-gem`: it runs `rake release`, which creates and pushes the tag
-# and the branch — the GitHub release already made the tag, and the job runs on a
-# detached tag checkout. This does the two steps that are left: build (behind the
-# rubocop + spec gate the Rakefile hangs off `build`) and push.
+# The release commit is the one that SET the version (the release PR's merge), found from
+# history, not the head of main: a resume after other merges still ships exactly the
+# reviewed commit.
+#
+# Trusted Publishing (OIDC): RubyGems.org trusts THIS file (release.yml) in THIS repo —
+# keep the name. No API key exists anywhere. One-time setup on rubygems.org: rail0-sdk →
+# Trusted publishers → GitHub Actions, repository `commercelayer/rail0-ruby`, workflow
+# `release.yml`, environment `release` (bind the environment only AFTER this workflow is
+# on main: the old one ran without it).
 name: release
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to publish (e.g. v1.1.0)"
-        required: true
+  push:
+    branches: [main]
+  workflow_dispatch: # resume a release that stopped halfway; refused off main
 
 permissions:
   contents: read
-  id-token: write # the OIDC token RubyGems.org exchanges for a short-lived push key
 
+# One release at a time, never cancelled halfway.
 concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  PACKAGE: rail0-sdk
+
 jobs:
-  publish:
+  plan:
+    name: Plan
     runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      publish: ${{ steps.plan.outputs.publish }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      commit: ${{ steps.plan.outputs.commit }}
+    steps:
+      - name: Only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::releases run from main only (got ${GITHUB_REF})"
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # history (the commit that set the version) and tags
+
+      - name: What to release
+        id: plan
+        run: |
+          set -euo pipefail
+          version_at() {
+            git show "$1:lib/rail0/version.rb" 2>/dev/null | sed -n 's/^ *VERSION = "\([^"]*\)".*$/\1/p' | head -n 1 || true
+          }
+
+          version="$(version_at HEAD)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Rail0::VERSION '$version' is not X.Y.Z"
+            exit 1
+          fi
+          tag="v$version"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+
+          published=false
+          if curl -fsS "https://rubygems.org/api/v1/versions/$PACKAGE.json" |
+            jq -e --arg v "$version" 'any(.[]; .number == $v)' >/dev/null 2>&1; then
+            published=true
+          fi
+          tagged=false
+          git rev-parse -q --verify "refs/tags/$tag" >/dev/null && tagged=true
+
+          if [ "$published" = true ] && [ "$tagged" = true ]; then
+            echo "::notice::$PACKAGE $version is on RubyGems.org and tagged $tag: nothing to release"
+            echo "release=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The commit that set this version: the newest first-parent commit of main whose
+          # version differs from its parent's.
+          commit=""
+          for c in $(git log --first-parent --format=%H -- lib/rail0/version.rb); do
+            if [ "$(version_at "$c")" = "$version" ] && [ "$(version_at "$c^1")" != "$version" ]; then
+              commit="$c"
+              break
+            fi
+          done
+          if [ -z "$commit" ]; then
+            echo "::error::cannot find the commit that set version $version"
+            exit 1
+          fi
+
+          if [ "$tagged" = true ]; then
+            tag_commit="$(git rev-list -n 1 "$tag")"
+            if [ "$tag_commit" != "$commit" ]; then
+              echo "::error::tag $tag is on $tag_commit, but $version was set by $commit"
+              exit 1
+            fi
+          else
+            latest="$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+            if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "${latest#v}" "$version" | sort -V | tail -n 1)" != "$version" ]; then
+              echo "::error::$version is older than the latest tag $latest"
+              exit 1
+            fi
+          fi
+
+          echo "release=true" >>"$GITHUB_OUTPUT"
+          echo "commit=$commit" >>"$GITHUB_OUTPUT"
+          if [ "$published" = true ]; then echo "publish=false" >>"$GITHUB_OUTPUT"; else echo "publish=true" >>"$GITHUB_OUTPUT"; fi
+          {
+            echo "### Releasing $PACKAGE $version"
+            echo "- commit: \`$commit\`"
+            echo "- on RubyGems.org already: $published"
+            echo "- tagged already: $tagged"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  gate:
+    name: CI on the release commit
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.plan.outputs.commit }}
+
+  publish:
+    name: Publish, tag, release
+    needs: [plan, gate]
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://rubygems.org/gems/rail0-sdk/versions/${{ needs.plan.outputs.version }}
+    permissions:
+      contents: write # the tag and the GitHub release
+      id-token: write # the OIDC token RubyGems.org exchanges for a short-lived push key
+      pull-requests: read # the release notes, from the release PR's body
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      COMMIT: ${{ needs.plan.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.plan.outputs.commit }}
 
-      # rbsecp256k1 (via eth, for the specs) needs the system libsecp256k1 — same as ci.yml.
-      - name: Install libsecp256k1
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libsecp256k1-dev pkg-config
-
+      # `gem build` needs Ruby alone: no bundle, so no libsecp256k1 (that is for the specs,
+      # and the gate already ran them on this commit).
       - uses: ruby/setup-ruby@v1
-        env:
-          BUNDLE_BUILD__RBSECP256K1: "--with-system-libraries"
+        if: needs.plan.outputs.publish == 'true'
         with:
           ruby-version: "3.3"
-          bundler-cache: true
 
-      # The tag names the version being released; Rail0::VERSION is what gets built.
-      - name: Check the tag matches Rail0::VERSION
-        id: version
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          version="$(ruby -e 'require "./lib/rail0/version"; print Rail0::VERSION')"
-          tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
-          if [ "${tag}" != "v${version}" ]; then
-            echo "::error::tag '${tag}' does not match Rail0::VERSION ${version} (expected v${version})"
-            exit 1
-          fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      # Idempotent: a version already on RubyGems.org is reported and skipped, so a
-      # re-run never fails on "Repushing of gem versions is not allowed".
-      - name: Skip a version already published
-        id: published
-        run: |
-          if curl -fsS https://rubygems.org/api/v1/versions/rail0-sdk.json \
-               | ruby -rjson -e 'exit(JSON.parse($stdin.read).any? { |v| v["number"] == ARGV[0] } ? 0 : 1)' "${{ steps.version.outputs.version }}"; then
-            echo "::notice::rail0-sdk ${{ steps.version.outputs.version }} is already on RubyGems.org — nothing to publish"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      # `rake build` runs rubocop and the specs first (the Rakefile gates build on them),
-      # then writes pkg/rail0-sdk-<version>.gem.
-      - name: Style, specs, build
-        if: steps.published.outputs.skip != 'true'
-        env:
-          BUNDLE_BUILD__RBSECP256K1: "--with-system-libraries"
-        run: bundle exec rake build
+      - name: Build the gem
+        if: needs.plan.outputs.publish == 'true'
+        run: gem build rail0-sdk.gemspec --output "rail0-sdk-${VERSION}.gem"
 
       - name: Configure Trusted Publishing credentials
-        if: steps.published.outputs.skip != 'true'
+        if: needs.plan.outputs.publish == 'true'
         uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
 
-      - name: Publish
-        if: steps.published.outputs.skip != 'true'
-        run: gem push "pkg/rail0-sdk-${{ steps.version.outputs.version }}.gem"
+      - name: Publish to RubyGems.org
+        if: needs.plan.outputs.publish == 'true'
+        run: gem push "rail0-sdk-${VERSION}.gem"
+
+      - name: Release notes from the release pull request
+        id: notes
+        run: |
+          set -euo pipefail
+          number="$(gh api "repos/$GITHUB_REPOSITORY/commits/$COMMIT/pulls" \
+            --jq '[.[] | select(.merged_at != null and (.title | startswith("chore(release)")) and (.title | contains(env.TAG)))][0].number // empty' || true)"
+          if [ -z "$number" ]; then
+            number="$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --search "\"chore(release): $TAG\" in:title" \
+              --json number,title --jq '[.[] | select(.title | contains(env.TAG))][0].number // empty' || true)"
+          fi
+          if [ -z "$number" ]; then
+            echo "::notice::no merged release pull request for $TAG found: GitHub generates the notes"
+            exit 0
+          fi
+          gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json body --jq .body >"$RUNNER_TEMP/pr-body.md"
+          awk '/<!-- release-notes:end -->/ { inside = 0 } inside { print } /<!-- release-notes:start -->/ { inside = 1 }' \
+            "$RUNNER_TEMP/pr-body.md" >"$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || cp "$RUNNER_TEMP/pr-body.md" "$RUNNER_TEMP/notes.md"
+          printf '\nRelease pull request: #%s\n' "$number" >>"$RUNNER_TEMP/notes.md"
+          echo "file=$RUNNER_TEMP/notes.md" >>"$GITHUB_OUTPUT"
+
+      # `gh release create --target` creates the tag on the release commit and the
+      # release in one call. Skipped when the release already exists (a resume).
+      - name: Tag and GitHub release
+        env:
+          NOTES_FILE: ${{ steps.notes.outputs.file }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::GitHub release $TAG already exists"
+            exit 0
+          fi
+          if [ -n "${NOTES_FILE:-}" ]; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$COMMIT" --title "$TAG" --notes-file "$NOTES_FILE"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$COMMIT" --title "$TAG" --generate-notes
+          fi
+
+  announce:
+    name: Slack message
+    needs: [plan, publish]
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      # The channel: swap the secret here (one place) to post somewhere else.
+      SLACK_WEBHOOK_URL: ${{ secrets.PIPELINE_SLACK_CHANNEL_WEBHOOK_URL }}
+      SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+    steps:
+      - name: No Slack webhook
+        if: env.SLACK_WEBHOOK_URL == ''
+        run: echo "::warning::the Slack webhook secret is not available to this repository; no message posted"
+
+      - name: Post to a Slack channel
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v4
+        with:
+          webhook-type: incoming-webhook
+          payload: |
+            {
+            "text": "New release rail0-sdk v${{ needs.plan.outputs.version }}.",
+            "blocks": [
+              {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "New release for <https://rubygems.org/gems/rail0-sdk/versions/${{ needs.plan.outputs.version }}|`rail0-sdk`>\n*<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.plan.outputs.tag }}|release notes>*"
+              }
+              },
+              {
+              "type": "section",
+              "fields": [
+                { "type": "mrkdwn", "text": "*Package:*\nrail0-sdk" },
+                { "type": "mrkdwn", "text": "*Version:*\n${{ needs.plan.outputs.version }}" }
+              ]
+              },
+              {
+              "type": "context",
+              "elements": [
+                { "type": "image", "image_url": "${{ github.event.sender.avatar_url }}", "alt_text": "${{ github.event.sender.login }}" },
+                { "type": "mrkdwn", "text": "*${{ github.event.sender.login }}* has triggered this release." }
+              ]
+              }
+            ]
+            }

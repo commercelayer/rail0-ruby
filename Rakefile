@@ -30,3 +30,14 @@ task default: %i[rubocop spec]
 # Verify with `rake -P`: `default` must appear under `rake build`, not at the end of
 # `rake release`.
 task build: :default
+
+# Releases ship from CI only: bin/release-prepare opens the release pull request, and
+# merging it runs .github/workflows/release.yml (RubyGems Trusted Publishing, then the
+# tag). bundler's `rake release` — tag, push and `gem push` from a laptop — would bypass
+# the review, so it and its release:* steps are replaced by a pointer.
+Rake::Task.tasks.each { |t| t.clear if t.name == "release" || t.name.start_with?("release:") }
+desc "Disabled: run bin/release-prepare and merge the release pull request"
+task :release do
+  abort "rake release is disabled: run bin/release-prepare, then get the release pull " \
+        "request approved and merge it (.github/workflows/release.yml publishes the gem)."
+end
