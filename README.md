@@ -1091,6 +1091,10 @@ A release is an approved pull request: merging it is what publishes.
    notes from the pull requests merged since the last tag, and opens
    `chore(release): vX.Y.Z`. `--dry-run` prints all of it and writes nothing.
 2. Review the pull request (edit the notes in its body if needed), approve and merge it.
+   The approval must come from a reviewer **other than the pull request's author**, on its
+   final commit: release.yml checks it before publishing anything and stops otherwise —
+   an admin merge that bypassed the review, a direct push to `main` or a resume of an
+   unapproved release publishes nothing.
 3. `.github/workflows/release.yml` runs on that push to `main`: CI again on the release
    commit, `gem push` through RubyGems **Trusted Publishing**, then the tag `vX.Y.Z` and
    the GitHub release (notes from the pull request), then a Slack message.
