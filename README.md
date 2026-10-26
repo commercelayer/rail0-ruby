@@ -1086,8 +1086,12 @@ that argues with the codebase teaches people to ignore it.
 
 A release is an approved pull request: merging it is what publishes.
 
-1. `bin/release-prepare`, on an up-to-date, clean `main`. It asks for patch / minor /
-   major (or takes `X.Y.Z`), bumps `Rail0::VERSION` and `Gemfile.lock`, writes the release
+1. `bin/release-prepare`, on an up-to-date, clean `main`. It computes the version from the titles of the pull requests merged since the last tag
+   (Conventional Commits): a breaking change — `!` after the type, as in `feat(api)!:`, or a
+   `BREAKING CHANGE:` footer — makes it a major, any `feat` a minor, anything else a patch,
+   and it refuses when nothing merged. `bin/release-prepare minor` (or `patch`, `major`,
+   `X.Y.Z`) sets it by hand instead. The release PR says which pull requests decided it.
+   It then bumps `Rail0::VERSION` and `Gemfile.lock`, writes the release
    notes from the pull requests merged since the last tag, and opens
    `chore(release): vX.Y.Z`. `--dry-run` prints all of it and writes nothing.
 2. Review the pull request (edit the notes in its body if needed), approve and merge it.
