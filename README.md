@@ -740,11 +740,13 @@ client.accounts.get(account_id)
 client.accounts.update(account_id, email: "ops@merchant.example")
 client.accounts.update(account_id, name: "Merchant Ltd", email: "ops@merchant.example")
 client.accounts.update(account_id, priority_tip: false)   # minimum tip on the account's own transactions
+# Payment windows of NEW payments: seconds, or :default (sent as null) for the gateway default.
+client.accounts.update(account_id, authorization_ttl: 2 * 86_400, refund_ttl: :default)
 ```
 
 `email` is in the response because the holder is this endpoint's only possible caller.
 
-`update` needs at least one of `name`/`email`/`priority_tip` (it raises `ArgumentError`
+`update` needs at least one of `name`/`email`/`priority_tip`/a payment window (it raises `ArgumentError`
 before sending an empty PATCH, which the gateway would answer with 400). Name and email are
 unique across accounts, so a value another account holds answers **409**. It is a write on
 the account, so a deactivated wallet (403 `wallet_deactivated`) or account (403
@@ -755,6 +757,15 @@ exposed here.
 capture, void, release, refund): `true`, the default, tips the network's suggested priority
 fee; `false` uses the chain's minimum tip (0 on most chains, 25 gwei on Polygon PoS/Amoy) —
 cheaper, slower to confirm under load. The buyer's dispute/close-dispute never read it.
+
+**Payment windows** — `authorization_ttl` (how long an authorization can be captured) and
+`refund_ttl` (how long a payment can be refunded or disputed), in seconds — are the deadlines
+the account's **new** payments are created with: its own value, or the gateway default. The
+profile's `payment_windows` says which, and the bounds; outside them, or with the refund
+window less than `min_refund_window` (one day) past the authorization, the gateway answers
+**422** `invalid_payment_windows`. A payment's deadlines are signed into it, so a change moves
+only the payments created afterwards.
+
 The account's wallets are a collection under the same path (`client.wallets`), and
 buyer-facing discovery is `client.payment_methods`.
 

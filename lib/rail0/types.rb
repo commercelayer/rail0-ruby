@@ -336,32 +336,48 @@ module Rail0
     )
 
     # The account's own profile as the holder reads it (GET) and as a PATCH returns it — id, name,
-    # email, priority_tip, timestamps. Deliberately no admin/role field: the operator grant lives in a
-    # separate table, so a standard account's profile carries no trace of that axis. An ADMIN reading
-    # any account gets the whole record plus `admin` instead, which is a different shape and not this
-    # one.
+    # email, priority_tip, payment windows, timestamps. Deliberately no admin/role field: the operator
+    # grant lives in a separate table, so a standard account's profile carries no trace of that axis. An
+    # ADMIN reading any account gets the whole record plus `admin` instead, which is a different shape
+    # and not this one.
     Account = Struct.new(
-      :id,            # String
-      :name,          # String
+      :id,                 # String
+      :name,               # String
       :email,
-      :priority_tip,  # Boolean — Whether the merchant's own transactions tip the network's suggested priority fee (true, the default) or the chain's minimum tip (false: 0 on most chains, 25 gwei on Polygon PoS/Amoy). The buyer's dispute/close_dispute never read it.
-      :created_at,    # String
-      :updated_at,    # String
+      :priority_tip,       # Boolean — Whether the merchant's own transactions tip the network's suggested priority fee (true, the default) or the chain's minimum tip (false: 0 on most chains, 25 gwei on Polygon PoS/Amoy). The buyer's dispute/close_dispute never read it.
+      :authorization_ttl,  # Integer — Seconds an authorization of the account's new payments stays capturable after the payment is created: the account's own value, or the gateway default (AUTHORIZATION_TTL).
+      :refund_ttl,         # Integer — Seconds the account's new payments stay refundable, and open to a dispute, after they are created: the account's own value, or the gateway default (REFUND_TTL).
+      :payment_windows,    # PaymentWindows
+      :created_at,         # String
+      :updated_at,         # String
+      keyword_init: true
+    )
+
+    # How the account's windows are set and what a new value must meet: per window, whether it is the
+    # account's own (custom) or the default, the default, and the bounds. The refund window has no floor
+    # of its own: the pair must keep refund_ttl - authorization_ttl >= min_refund_window.
+    PaymentWindows = Struct.new(
+      :authorization_ttl,  # Hash
+      :refund_ttl,         # Hash
+      :min_refund_window,  # Integer
       keyword_init: true
     )
 
     # The whole account record, as an operator reads it (Full entity: GET /accounts, and GET/PATCH
     # /accounts/{account_id} for an admin session): every column plus `admin` and the derived `status`.
     AccountFull = Struct.new(
-      :id,            # String
-      :name,          # String
-      :email,         # String — Stored lowercase.
-      :active,        # Boolean — The operator's switch. false = deactivated.
-      :priority_tip,  # Boolean — The merchant's fee setting (see Account.priority_tip).
-      :created_at,    # String
-      :updated_at,    # String
-      :admin,         # Boolean — Whether the account holds the operator grant (a row in administrators).
-      :status,        # String — One-word reading of active: active, or deactivated (switched off by an operator).
+      :id,                 # String
+      :name,               # String
+      :email,              # String — Stored lowercase.
+      :active,             # Boolean — The operator's switch. false = deactivated.
+      :priority_tip,       # Boolean — The merchant's fee setting (see Account.priority_tip).
+      :authorization_ttl,  # Integer — Seconds an authorization of the account's new payments stays capturable after the payment is created: the account's own value, or the gateway default (AUTHORIZATION_TTL).
+      :refund_ttl,         # Integer — Seconds the account's new payments stay refundable, and open to a dispute, after they are created: the account's own value, or the gateway default (REFUND_TTL).
+      :payment_windows,    # PaymentWindows
+      :created_at,         # String
+      :updated_at,         # String
+      :admin,              # Boolean — Whether the account holds the operator grant (a row in administrators).
+      :status,             # String — One-word reading of active: active, or deactivated (switched off by an operator).
       keyword_init: true
     )
 
