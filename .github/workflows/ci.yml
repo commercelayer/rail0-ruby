@@ -21,6 +21,13 @@ on:
   pull_request:
   push:
     branches: [main]
+  # release.yml calls this as its gate, on the exact commit it is about to publish.
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to check (default: the commit of the triggering event)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -31,6 +38,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }} # empty outside workflow_call: the event's own commit
 
       # libsecp256k1-dev + pkg-config are what let rbsecp256k1 build against the
       # system library instead of its bundled source, which is the build that fails.
@@ -64,3 +73,13 @@ jobs:
       # The default rake task is rubocop + the spec suite (Rakefile: task default: %i[rubocop spec]).
       - name: Style and specs
         run: bundle exec rake
+
+      # The release gate also builds the gem: a gemspec that cannot package (a file list
+      # gone wrong, a bad metadata key) must fail here, not in the publish job.
+      - name: Build the gem
+        run: gem build rail0-sdk.gemspec
+
+      # bin/release-prepare opens every release pull request; its test drives it against
+      # a throwaway repository (no network, no GitHub), refusals and one full run included.
+      - name: bin/release-prepare
+        run: bin/release-prepare-test
