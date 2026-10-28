@@ -544,8 +544,8 @@ RSpec.describe Rail0::Client do
     end
   end
 
-  # Description-only edit (rail0-gateway#373): nil must reach the wire as JSON null,
-  # not be dropped like the optional keys of webhooks.update.
+  # Off-chain edits: an explicit nil must reach the wire as JSON null (it clears),
+  # while a keyword not passed is not sent at all.
   describe "payments.update" do
     let(:path) { "/payments/#{PAYMENT_ID}" }
 
@@ -569,8 +569,21 @@ RSpec.describe Rail0::Client do
       expect(stub).to have_been_requested
     end
 
-    it "requires the description keyword" do
+    it "requires at least one field" do
       expect { client.payments.update(PAYMENT_ID) }.to raise_error(ArgumentError, /description/)
+    end
+
+    # Only the keywords passed reach the wire: a note and a reference leave the
+    # description alone, and an explicit nil is sent as null.
+    it "sends the payee's note and reference without the description" do
+      stub = stub_request(:patch, "#{BASE_URL}#{path}")
+             .with(body: { merchant_note: "agreed by email", reference: "ORD-2", reference_origin: nil }.to_json)
+             .to_return(status: 200, body: PAYMENT_DETAIL.merge(reference: "ORD-2").to_json,
+                        headers: json_headers)
+      result = client.payments.update(PAYMENT_ID, merchant_note: "agreed by email", reference: "ORD-2",
+                                                  reference_origin: nil)
+      expect(stub).to have_been_requested
+      expect(result[:reference]).to eq("ORD-2")
     end
 
     it "surfaces a 422 over-length description as an ApiError" do
@@ -586,6 +599,18 @@ RSpec.describe Rail0::Client do
       stub_patch(path, { code: "not_found", detail: "payment not found" }, status: 404)
       expect { client.payments.update(PAYMENT_ID, description: "x") }
         .to raise_error(Rail0::ApiError) { |e| expect(e.status).to eq(404) }
+    end
+  end
+
+  describe "webhooks.test" do
+    it "POSTs to the test route and returns the delivery result" do
+      stub = stub_request(:post, "#{BASE_URL}/webhooks/wh-1/test")
+             .to_return(status: 200, headers: json_headers,
+                        body: { delivered: false, response_code: "401", response_message: "bad signature",
+                                error_reason: nil, duration_ms: 12 }.to_json)
+      result = client.webhooks.test("wh-1")
+      expect(stub).to have_been_requested
+      expect(result).to include(delivered: false, response_code: "401")
     end
   end
 

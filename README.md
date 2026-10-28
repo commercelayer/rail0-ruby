@@ -471,6 +471,11 @@ client.payments.create(params, idempotency_key: nil)  # or keyword fields
 client.payments.get(id)
 client.payments.update(id, description: "Order #42")  # → the payment, same shape as get
 client.payments.update(id, description: nil)          # nil (or "") clears it
+# The payee's own fields (the payer gets 403 not_the_payee): an internal note never shown
+# to the payer, and the payment's identifier in the merchant's system. Only what you pass
+# is sent.
+client.payments.update(id, merchant_note: "refund agreed by email")
+client.payments.update(id, reference: "ORD-1042", reference_origin: "commercelayer")
 # The description is the only editable field: off-chain, so any status, settled included.
 # Payer or payee only (a non-participant gets 404); over 255 characters is a 422.
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
@@ -644,6 +649,7 @@ client.webhooks.enable(id)
 client.webhooks.disable(id)
 client.webhooks.rotate_secret(id)    # returns a fresh shared_secret
 client.webhooks.reset_circuit(id)
+client.webhooks.test(id)   # signed webhooks.test event now → { delivered:, response_code:, … }; not logged
 # status is "delivered" or "failed" only; payment_id takes a UUID or a rail0_id.
 client.webhooks.event_callbacks(id, status: "failed", response_code: "500")
 client.webhooks.redeliver(id, callback_id)  # 202 { status: "queued" } — replay one delivery
@@ -740,11 +746,13 @@ client.accounts.get(account_id)
 client.accounts.update(account_id, email: "ops@merchant.example")
 client.accounts.update(account_id, name: "Merchant Ltd", email: "ops@merchant.example")
 client.accounts.update(account_id, priority_tip: false)   # minimum tip on the account's own transactions
+# Payment windows of NEW payments: seconds, or :default (sent as null) for the gateway default.
+client.accounts.update(account_id, authorization_ttl: 2 * 86_400, refund_ttl: :default)
 ```
 
 `email` is in the response because the holder is this endpoint's only possible caller.
 
-`update` needs at least one of `name`/`email`/`priority_tip` (it raises `ArgumentError`
+`update` needs at least one of `name`/`email`/`priority_tip`/a payment window (it raises `ArgumentError`
 before sending an empty PATCH, which the gateway would answer with 400). Name and email are
 unique across accounts, so a value another account holds answers **409**. It is a write on
 the account, so a deactivated wallet (403 `wallet_deactivated`) or account (403
@@ -755,6 +763,15 @@ exposed here.
 capture, void, release, refund): `true`, the default, tips the network's suggested priority
 fee; `false` uses the chain's minimum tip (0 on most chains, 25 gwei on Polygon PoS/Amoy) —
 cheaper, slower to confirm under load. The buyer's dispute/close-dispute never read it.
+
+**Payment windows** — `authorization_ttl` (how long an authorization can be captured) and
+`refund_ttl` (how long a payment can be refunded or disputed), in seconds — are the deadlines
+the account's **new** payments are created with: its own value, or the gateway default. The
+profile's `payment_windows` says which, and the bounds; outside them, or with the refund
+window less than `min_refund_window` (one day) past the authorization, the gateway answers
+**422** `invalid_payment_windows`. A payment's deadlines are signed into it, so a change moves
+only the payments created afterwards.
+
 The account's wallets are a collection under the same path (`client.wallets`), and
 buyer-facing discovery is `client.payment_methods`.
 
@@ -1094,6 +1111,15 @@ A release is an approved pull request: merging it is what publishes.
    It then bumps `Rail0::VERSION` and `Gemfile.lock`, writes the release
    notes from the pull requests merged since the last tag, and opens
    `chore(release): vX.Y.Z`. `--dry-run` prints all of it and writes nothing.
+
+   **Or on a feature branch**, to release a change in the same review: run it on a clean
+   branch that is pushed, contains `origin/main` and has an open pull request into `main`.
+   The bump is committed and pushed on that branch (`chore(release): vX.Y.Z`), the pull
+   request's own title counts toward the version and gets a line in the notes, and the
+   notes go into its description between `<!-- release:start -->` markers — the text above
+   them is kept. Re-run it after new commits or a merge of `main`: it refreshes the version
+   and the notes instead of bumping twice. One approval then covers the change and its
+   release.
 2. Review the pull request (edit the notes in its body if needed), approve and merge it.
    The approval must come from a reviewer **other than the pull request's author**, on its
    final commit: release.yml checks it before publishing anything and stops otherwise —

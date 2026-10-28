@@ -265,6 +265,9 @@ module Rail0
       :last_error_code,       # Decoded reason of the last failed on-chain attempt; null once the payment makes forward progress. Non-null means the latest attempt failed.
       :last_error_message,    # Human-readable form of last_error_code.
       :description,
+      :reference,             # This payment's identifier in the merchant's own system; set at create, correctable by the payee.
+      :reference_origin,      # The system the reference comes from, a lowercase slug (e.g. commercelayer).
+      :merchant_note,         # The payee's internal note (PATCH /payments/{id}). Present only when the session is the payment's PAYEE, and on the operator's Full view; absent for the payer.
       :metadata,
       :signed_at,             # When the payer signature was stored (null while unsigned).
       :created_at,            # String
@@ -288,6 +291,16 @@ module Rail0
       :close_reason_description,  # English description of `close_reason_code`; "No reason given" when `close_reason` is the zero bytes32; "Unrecognised reason" when it is a non-zero bytes32 outside the dictionary; null while open.
       :closed_block,
       :closed_at,
+      keyword_init: true
+    )
+
+    # What the callback did with a test event (POST /webhooks/{id}/test).
+    WebhookTestResult = Struct.new(
+      :delivered,         # Boolean — The endpoint answered 2xx.
+      :response_code,     # The HTTP status it answered; null when no response came (see error_reason).
+      :response_message,  # Up to 1000 printable characters of its response body.
+      :error_reason,      # Why no response came: a refused address, a TLS or connection error, the deadline.
+      :duration_ms,       # Integer — How long the attempt took.
       keyword_init: true
     )
 
@@ -336,32 +349,48 @@ module Rail0
     )
 
     # The account's own profile as the holder reads it (GET) and as a PATCH returns it — id, name,
-    # email, priority_tip, timestamps. Deliberately no admin/role field: the operator grant lives in a
-    # separate table, so a standard account's profile carries no trace of that axis. An ADMIN reading
-    # any account gets the whole record plus `admin` instead, which is a different shape and not this
-    # one.
+    # email, priority_tip, payment windows, timestamps. Deliberately no admin/role field: the operator
+    # grant lives in a separate table, so a standard account's profile carries no trace of that axis. An
+    # ADMIN reading any account gets the whole record plus `admin` instead, which is a different shape
+    # and not this one.
     Account = Struct.new(
-      :id,            # String
-      :name,          # String
+      :id,                 # String
+      :name,               # String
       :email,
-      :priority_tip,  # Boolean — Whether the merchant's own transactions tip the network's suggested priority fee (true, the default) or the chain's minimum tip (false: 0 on most chains, 25 gwei on Polygon PoS/Amoy). The buyer's dispute/close_dispute never read it.
-      :created_at,    # String
-      :updated_at,    # String
+      :priority_tip,       # Boolean — Whether the merchant's own transactions tip the network's suggested priority fee (true, the default) or the chain's minimum tip (false: 0 on most chains, 25 gwei on Polygon PoS/Amoy). The buyer's dispute/close_dispute never read it.
+      :authorization_ttl,  # Integer — Seconds an authorization of the account's new payments stays capturable after the payment is created: the account's own value, or the gateway default (AUTHORIZATION_TTL).
+      :refund_ttl,         # Integer — Seconds the account's new payments stay refundable, and open to a dispute, after they are created: the account's own value, or the gateway default (REFUND_TTL).
+      :payment_windows,    # PaymentWindows
+      :created_at,         # String
+      :updated_at,         # String
+      keyword_init: true
+    )
+
+    # How the account's windows are set and what a new value must meet: per window, whether it is the
+    # account's own (custom) or the default, the default, and the bounds. The refund window has no floor
+    # of its own: the pair must keep refund_ttl - authorization_ttl >= min_refund_window.
+    PaymentWindows = Struct.new(
+      :authorization_ttl,  # Hash
+      :refund_ttl,         # Hash
+      :min_refund_window,  # Integer
       keyword_init: true
     )
 
     # The whole account record, as an operator reads it (Full entity: GET /accounts, and GET/PATCH
     # /accounts/{account_id} for an admin session): every column plus `admin` and the derived `status`.
     AccountFull = Struct.new(
-      :id,            # String
-      :name,          # String
-      :email,         # String — Stored lowercase.
-      :active,        # Boolean — The operator's switch. false = deactivated.
-      :priority_tip,  # Boolean — The merchant's fee setting (see Account.priority_tip).
-      :created_at,    # String
-      :updated_at,    # String
-      :admin,         # Boolean — Whether the account holds the operator grant (a row in administrators).
-      :status,        # String — One-word reading of active: active, or deactivated (switched off by an operator).
+      :id,                 # String
+      :name,               # String
+      :email,              # String — Stored lowercase.
+      :active,             # Boolean — The operator's switch. false = deactivated.
+      :priority_tip,       # Boolean — The merchant's fee setting (see Account.priority_tip).
+      :authorization_ttl,  # Integer — Seconds an authorization of the account's new payments stays capturable after the payment is created: the account's own value, or the gateway default (AUTHORIZATION_TTL).
+      :refund_ttl,         # Integer — Seconds the account's new payments stay refundable, and open to a dispute, after they are created: the account's own value, or the gateway default (REFUND_TTL).
+      :payment_windows,    # PaymentWindows
+      :created_at,         # String
+      :updated_at,         # String
+      :admin,              # Boolean — Whether the account holds the operator grant (a row in administrators).
+      :status,             # String — One-word reading of active: active, or deactivated (switched off by an operator).
       keyword_init: true
     )
 

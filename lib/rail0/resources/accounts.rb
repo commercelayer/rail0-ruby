@@ -30,12 +30,16 @@ module Rail0
 
       # The account's own profile.
       # @param account_id [String] The account UUID — must be the one this JWT belongs to.
-      # @return [Hash] `id`, `name`, `email`, `priority_tip`, `created_at`, `updated_at`.
+      # @return [Hash] `id`, `name`, `email`, `priority_tip`, `authorization_ttl`, `refund_ttl`,
+      #   `payment_windows`, `created_at`, `updated_at`.
       #   `email` is part of the response because only the account's owner, or an operator,
       #   can read it. `priority_tip` is the fee setting of the account's OWN transactions
       #   (authorize, capture, void, release, refund): true, the default, tips the network's
       #   suggested priority fee; false uses the chain's minimum tip — 0 on most chains,
       #   25 gwei on Polygon PoS/Amoy. The buyer's dispute/close_dispute never read it.
+      #   `authorization_ttl` / `refund_ttl` are the payment windows the account's NEW
+      #   payments are created with, in seconds — its own or the gateway default;
+      #   `payment_windows` says which, and the bounds a new value must fit.
       def get(account_id)
         http.get("/accounts/#{segment(account_id)}")
       end
@@ -48,6 +52,10 @@ module Rail0
       # are UNIQUE across accounts, so a value another account already holds answers 409.
       # `priority_tip: false` is a value, not an absence: it is sent as false and switches
       # the account's own transactions to the chain's minimum tip; nil leaves it alone.
+      # The payment windows take a number of seconds, or `:default` to put one back on the
+      # gateway default (sent as null); nil leaves it alone. Outside the bounds in
+      # `payment_windows`, or closer than its `min_refund_window`, the gateway answers 422
+      # invalid_payment_windows. A change moves only the payments created afterwards.
       #
       # This is a write on the account itself, so a deactivated wallet (403
       # wallet_deactivated) or a deactivated account (403 account_deactivated) cannot
@@ -60,16 +68,34 @@ module Rail0
       # @param priority_tip [Boolean, nil] Tip the network's suggested priority fee on the
       #   account's own transactions (true, the gateway default) or the chain's minimum tip
       #   (false). Owner or admin.
+      # @param authorization_ttl [Integer, :default, nil] Authorization (capture) window of
+      #   new payments, in seconds, or :default. Owner or admin.
+      # @param refund_ttl [Integer, :default, nil] Refund and dispute window of new
+      #   payments, in seconds, or :default. Owner or admin.
       # @return [Hash] the updated profile, same shape as {get}.
-      # @raise [ArgumentError] when none of name, email or priority_tip is given.
-      def update(account_id, name: nil, email: nil, priority_tip: nil)
+      # @raise [ArgumentError] when no field is given, or a window is neither an Integer
+      #   nor :default.
+      def update(account_id, name: nil, email: nil, priority_tip: nil, authorization_ttl: nil, refund_ttl: nil)
         body = {}
         body[:name]         = name         unless name.nil?
         body[:email]        = email        unless email.nil?
         body[:priority_tip] = priority_tip unless priority_tip.nil?
-        raise ArgumentError, "at least one of name, email or priority_tip is required" if body.empty?
+        { authorization_ttl: authorization_ttl, refund_ttl: refund_ttl }.each do |key, value|
+          body[key] = window(key, value) unless value.nil?
+        end
+        raise ArgumentError, "at least one of name, email, priority_tip or a payment window is required" if body.empty?
 
         http.patch("/accounts/#{segment(account_id)}", body)
+      end
+
+      private
+
+      # A payment window as the gateway takes it: whole seconds, or null for the default.
+      def window(key, value)
+        return if value == :default
+        return value if value.is_a?(Integer)
+
+        raise ArgumentError, "#{key} must be an Integer number of seconds or :default"
       end
     end
   end

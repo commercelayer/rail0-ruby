@@ -64,7 +64,7 @@ RSpec.describe Rail0::Resources::Accounts do
 
     # The gateway answers an empty PATCH with 400; refusing it here saves the round trip.
     it "raises ArgumentError without sending anything when no field is given" do
-      expect { client.accounts.update(account_id) }.to raise_error(ArgumentError, /name, email or priority_tip/)
+      expect { client.accounts.update(account_id) }.to raise_error(ArgumentError, /name, email, priority_tip or a payment window/)
       expect(a_request(:patch, path)).not_to have_been_made
     end
 
@@ -80,6 +80,26 @@ RSpec.describe Rail0::Resources::Accounts do
 
       expect(stub).to have_been_requested
       expect(result).to include(priority_tip: false)
+    end
+
+    # A window is seconds, or :default — sent as null, which is how the gateway puts it
+    # back on its default; a window left nil is not sent at all.
+    it "sends the payment windows, :default as null" do
+      stub = stub_request(:patch, path)
+             .with(body: { authorization_ttl: 172_800, refund_ttl: nil }.to_json)
+             .to_return(status: 200, body: profile.merge(authorization_ttl: 172_800).to_json,
+                        headers: { "Content-Type" => "application/json" })
+
+      result = client.accounts.update(account_id, authorization_ttl: 172_800, refund_ttl: :default)
+
+      expect(stub).to have_been_requested
+      expect(result).to include(authorization_ttl: 172_800)
+    end
+
+    it "refuses a window that is neither seconds nor :default, without sending anything" do
+      expect { client.accounts.update(account_id, refund_ttl: "30 days") }
+        .to raise_error(ArgumentError, /refund_ttl must be an Integer/)
+      expect(a_request(:patch, path)).not_to have_been_made
     end
 
     # `active` is the operator's field on this route; an owner sending it gets 403.
