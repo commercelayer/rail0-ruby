@@ -471,6 +471,11 @@ client.payments.create(params, idempotency_key: nil)  # or keyword fields
 client.payments.get(id)
 client.payments.update(id, description: "Order #42")  # → the payment, same shape as get
 client.payments.update(id, description: nil)          # nil (or "") clears it
+# The payee's own fields (the payer gets 403 not_the_payee): an internal note never shown
+# to the payer, and the payment's identifier in the merchant's system. Only what you pass
+# is sent.
+client.payments.update(id, merchant_note: "refund agreed by email")
+client.payments.update(id, reference: "ORD-1042", reference_origin: "commercelayer")
 # The description is the only editable field: off-chain, so any status, settled included.
 # Payer or payee only (a non-participant gets 404); over 255 characters is a 422.
 client.payments.list(status: "authorized", disputed: false, chain_id: 84532, sort: "-created_at")
@@ -644,6 +649,7 @@ client.webhooks.enable(id)
 client.webhooks.disable(id)
 client.webhooks.rotate_secret(id)    # returns a fresh shared_secret
 client.webhooks.reset_circuit(id)
+client.webhooks.test(id)   # signed webhooks.test event now → { delivered:, response_code:, … }; not logged
 # status is "delivered" or "failed" only; payment_id takes a UUID or a rail0_id.
 client.webhooks.event_callbacks(id, status: "failed", response_code: "500")
 client.webhooks.redeliver(id, callback_id)  # 202 { status: "queued" } — replay one delivery

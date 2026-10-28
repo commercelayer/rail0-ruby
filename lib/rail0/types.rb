@@ -265,6 +265,9 @@ module Rail0
       :last_error_code,       # Decoded reason of the last failed on-chain attempt; null once the payment makes forward progress. Non-null means the latest attempt failed.
       :last_error_message,    # Human-readable form of last_error_code.
       :description,
+      :reference,             # This payment's identifier in the merchant's own system; set at create, correctable by the payee.
+      :reference_origin,      # The system the reference comes from, a lowercase slug (e.g. commercelayer).
+      :merchant_note,         # The payee's internal note (PATCH /payments/{id}). Present only when the session is the payment's PAYEE, and on the operator's Full view; absent for the payer.
       :metadata,
       :signed_at,             # When the payer signature was stored (null while unsigned).
       :created_at,            # String
@@ -288,6 +291,16 @@ module Rail0
       :close_reason_description,  # English description of `close_reason_code`; "No reason given" when `close_reason` is the zero bytes32; "Unrecognised reason" when it is a non-zero bytes32 outside the dictionary; null while open.
       :closed_block,
       :closed_at,
+      keyword_init: true
+    )
+
+    # What the callback did with a test event (POST /webhooks/{id}/test).
+    WebhookTestResult = Struct.new(
+      :delivered,         # Boolean — The endpoint answered 2xx.
+      :response_code,     # The HTTP status it answered; null when no response came (see error_reason).
+      :response_message,  # Up to 1000 printable characters of its response body.
+      :error_reason,      # Why no response came: a refused address, a TLS or connection error, the deadline.
+      :duration_ms,       # Integer — How long the attempt took.
       keyword_init: true
     )
 

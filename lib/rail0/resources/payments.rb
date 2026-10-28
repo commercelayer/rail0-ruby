@@ -13,6 +13,11 @@ module Rail0
     # step (e.g. MetaMask) skip the local signer and report the hash via
     # {submit_by_hash} instead.
     class Payments
+      # The default of {update}'s keywords: "not passed", told apart from an explicit +nil+
+      # (which is sent, as JSON null, and clears the field).
+      UNSET = Object.new.freeze
+      private_constant :UNSET
+
       include Query
 
       # Operations accepted by the prepare/submit endpoints.
@@ -62,6 +67,10 @@ module Rail0
       #   `last_error_code`, false = none.
       # @param expiring_within [Integer, nil] scope "all" only: `authorized` payments whose
       #   `authorization_expiry` falls within this many SECONDS from now (1..90 days).
+      # @param reference [String, nil] Only payments with this reference — the payment's
+      #   identifier in the merchant's own system (exact match).
+      # @param reference_origin [String, nil] Only payments whose reference comes from this
+      #   system (case-insensitive).
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
       # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
@@ -74,9 +83,11 @@ module Rail0
       def list(status: nil, mode: nil, payer: nil, payee: nil, token: nil, rail0_id: nil,
                chain_id: nil, disputed: nil, operation: nil, min_amount: nil, max_amount: nil,
                created_from: nil, created_to: nil, scope: nil, account_id: nil, has_error: nil,
-               expiring_within: nil, sort: nil, page: nil, per_page: nil)
+               expiring_within: nil, reference: nil, reference_origin: nil, sort: nil, page: nil,
+               per_page: nil)
         query = build_query(status: status, mode: mode, payer: payer, payee: payee, token: token,
-                            rail0_id: rail0_id, chain_id: chain_id, disputed: disputed,
+                            rail0_id: rail0_id, reference: reference, reference_origin: reference_origin,
+                            chain_id: chain_id, disputed: disputed,
                             operation: operation,
                             min_amount: min_amount, max_amount: max_amount,
                             created_from: created_from, created_to: created_to,
@@ -97,7 +108,10 @@ module Rail0
       #   create(chain_id: 84532, mode: "authorize", amount: "100.00", token: "0x…", payer: "0x…", payee: "0x…")
       #   create({ chain_id: 84532, ... }, idempotency_key: "order-42")
       #
-      # @param params [Hash, nil] chain_id, mode, amount, token, payer, payee, description (opt), metadata (opt).
+      # @param params [Hash, nil] chain_id, mode, amount, token, payer, payee, description (opt),
+      #   metadata (opt), reference (opt — the payment's identifier in the merchant's own
+      #   system, max 128 characters, not unique, an idempotency term), reference_origin (opt
+      #   — which system: a lowercase slug, e.g. "commercelayer"; needs a reference).
       # @param idempotency_key [String, nil] Optional Idempotency-Key header value.
       # @param fields [Hash] Field keywords, used when +params+ is omitted.
       # @return [Hash]
@@ -116,22 +130,36 @@ module Rail0
         http.get("/payments/#{segment(id)}")
       end
 
-      # Set or clear a payment's description (PATCH /payments/{id}).
+      # Set or clear a payment's off-chain fields (PATCH /payments/{id}).
       #
-      # The description is the only field this route edits: it is off-chain metadata, so
-      # it can change at any status, settled payments included. Only a participant (the
-      # payer or the payee) may edit it — a non-participant gets the same 404 as an unknown
-      # id, and a deactivated caller wallet a 403 `wallet_deactivated`.
+      # Off-chain metadata, so it can change at any status, settled payments included. Only
+      # a participant (the payer or the payee) may call it — a non-participant gets the same
+      # 404 as an unknown id, and a deactivated caller wallet a 403 `wallet_deactivated`.
       #
-      # +description:+ is required, and is always sent: passing +nil+ sends JSON +null+,
-      # which clears it (as does +""+). Over 255 characters is a 422.
-      # (rail0-gateway#373)
+      # Only the keywords you PASS are sent, and at least one is required (ArgumentError
+      # first, rather than the gateway's 400). +nil+ or +""+ clears a field.
+      #
+      # - +description:+ either party, max 255 characters (422 over).
+      # - +merchant_note:+ the PAYEE's internal note, max 2000 characters — never shown to
+      #   the payer, not in webhooks.
+      # - +reference:+ / +reference_origin:+ the payment's identifier in the merchant's own
+      #   system and which system; the payee corrects them, and clearing the reference
+      #   clears its origin.
+      #
+      # The last three are the payee's: the payer gets 403 `not_the_payee`.
       #
       # @param id [String] Payment UUID or rail0_id.
-      # @param description [String, nil] The new description; +nil+ or +""+ clears it.
       # @return [Hash] The updated payment, the same shape {get} returns.
-      def update(id, description:)
-        http.patch("/payments/#{segment(id)}", { description: description })
+      # @raise [ArgumentError] when no field is given.
+      def update(id, description: UNSET, merchant_note: UNSET, reference: UNSET, reference_origin: UNSET)
+        body = { description: description, merchant_note: merchant_note, reference: reference,
+                 reference_origin: reference_origin }.reject { |_, v| v.equal?(UNSET) }
+        if body.empty?
+          raise ArgumentError,
+                "at least one of description, merchant_note, reference or reference_origin is required"
+        end
+
+        http.patch("/payments/#{segment(id)}", body)
       end
 
       # List on-chain transactions for a payment.

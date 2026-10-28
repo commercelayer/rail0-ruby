@@ -127,6 +127,18 @@ module Rail0
         http.put("/webhooks/#{segment(id)}/reset_circuit")
       end
 
+      # Send a test event to the webhook's callback now and report what it did
+      # (POST /webhooks/{id}/test). The event has topic "webhooks.test", +test: true+ and
+      # no payment, and is signed and delivered like a real one. Synchronous, one attempt,
+      # not logged in {event_callbacks} and not counted by the circuit breaker; it works on
+      # a disabled webhook. A refusal by the endpoint is a result, not an error.
+      # @param id [String] Webhook UUID.
+      # @return [Hash] +delivered+, +response_code+, +response_message+, +error_reason+,
+      #   +duration_ms+.
+      def test(id)
+        http.post("/webhooks/#{segment(id)}/test", {})
+      end
+
       # List delivery attempts for a webhook.
       # @param id [String] Webhook UUID.
       # @param status [String, nil] Filter by delivery status: "delivered" or "failed" only
