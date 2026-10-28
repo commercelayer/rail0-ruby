@@ -58,7 +58,7 @@ module Rail0
       #
       # +admin+ is true only for an account holding the operator (administrators)
       # grant: the gateway adds the field on an admin's session alone, and it is
-      # normalised here to a boolean so a standard login reads false rather than nil.
+      # normalized here to a boolean so a standard login reads false rather than nil.
       # Visibility only — every gated route re-checks the grant per request.
       def verify(message:, signature:)
         session = http.post("/auth", { message: message, signature: signature })

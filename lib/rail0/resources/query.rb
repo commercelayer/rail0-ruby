@@ -11,7 +11,7 @@ module Rail0
     # segment the same way ({#segment}).
     module Query
       # Segments that would not stay put once interpolated: "." and ".." are dot
-      # segments that a URL normaliser (a proxy, a CDN, the server's router) may
+      # segments that a URL normalizer (a proxy, a CDN, the server's router) may
       # resolve away, and an empty one collapses the path onto its parent.
       UNSAFE_SEGMENTS = ["", ".", ".."].freeze
       private_constant :UNSAFE_SEGMENTS

@@ -48,7 +48,7 @@ RSpec.describe Rail0::Resources::Query do
   end
 
   # End to end: the request_uri Net::HTTP is handed — what goes on the wire, before
-  # WebMock or anything else normalises it.
+  # WebMock or anything else normalizes it.
   describe "request paths built by resource methods" do
     let(:client) { Rail0::Client.new(base_url: BASE_URL, token: "jwt") }
 
