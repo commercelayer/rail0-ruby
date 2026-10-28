@@ -297,18 +297,21 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-            "text": "rail0 SDK for Ruby ${{ needs.plan.outputs.version }} released (rail0-sdk gem on RubyGems)",
+            "text": "New release for rail0 SDK for Ruby (${{ needs.plan.outputs.tag }})",
             "blocks": [
-              {
-              "type": "header",
-              "text": { "type": "plain_text", "text": ":gem: rail0 SDK for Ruby ${{ needs.plan.outputs.version }} released", "emoji": true }
-              },
               {
               "type": "section",
               "text": {
                 "type": "mrkdwn",
-                "text": "`rail0-sdk` gem on <https://rubygems.org/gems/rail0-sdk/versions/${{ needs.plan.outputs.version }}|RubyGems> · <${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.plan.outputs.tag }}|release notes>"
+                "text": ":gem: New release for <https://rubygems.org/gems/rail0-sdk/versions/${{ needs.plan.outputs.version }}|rail0 SDK for Ruby>\n<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.plan.outputs.tag }}|release notes>"
               }
+              },
+              {
+              "type": "section",
+              "fields": [
+                { "type": "mrkdwn", "text": "*Project:*\nrail0-sdk" },
+                { "type": "mrkdwn", "text": "*Version:*\n${{ needs.plan.outputs.tag }}" }
+              ]
               },
               {
               "type": "context",
