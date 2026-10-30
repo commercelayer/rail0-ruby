@@ -23,7 +23,7 @@ module Rail0
       include Query
 
       # The text of the gateway's +details_v1+ attestation, which +confirm_details: true+
-      # stands for on {create} and on an {update} that changes +min_amount+. Show it to the
+      # stands for on {create} and on an {update} that changes +min_amount+ or +no_minimum+. Show it to the
       # merchant and send +confirm_details: true+ only once they have accepted it.
       CONFIRM_DETAILS_TEXT =
         "I have checked the address, network, token and minimum deposit on the venue's deposit " \
@@ -70,10 +70,12 @@ module Rail0
       # refused 422 +confirmation_required+ and nothing is saved. Pass the merchant's answer,
       # never a hard-coded +true+.
       #
-      # +min_amount+ is REQUIRED too, with no default on purpose: the venue's deposit minimum
-      # as the merchant read it on the venue's deposit page, or +"0"+ when the venue has none.
-      # Left out or blank, the gateway refuses it 422 +minimum_required+ — a minimum nobody
-      # looked up is how a deposit gets lost, so never fill it in with a hard-coded +"0"+.
+      # The venue's minimum deposit is REQUIRED too, as EXACTLY ONE of: +min_amount+, the
+      # figure the merchant read on the venue's deposit page, or +no_minimum: true+, the
+      # merchant's statement that the venue has none. Neither, a blank figure, or both raise
+      # ArgumentError here and nothing is sent (the gateway would answer 422
+      # +minimum_required+ / +minimum_conflict+). Nothing is defaulted: a minimum nobody
+      # looked up is how a deposit gets lost, so pass what the merchant answered.
       #
       # @param wallet_id [String] The wallet (uuid or address) that will sign transfers to it;
       #   must be the session's own.
@@ -82,20 +84,29 @@ module Rail0
       # @param address [String] The deposit address, generated at the venue WITH THE NETWORK
       #   SET TO THIS CHAIN.
       # @param confirm_details [Boolean] The merchant's acceptance of {CONFIRM_DETAILS_TEXT}.
-      # @param min_amount [String] The venue's deposit minimum in base units, +"0"+ when the
-      #   venue has none. A payout below it is refused (+payout_below_minimum+) and the proof
-      #   is raised to it.
+      # @param min_amount [String, nil] The venue's deposit minimum in base units. A payout
+      #   below it is refused (+payout_below_minimum+) and the proof is raised to it.
+      # @param no_minimum [Boolean] +true+: the merchant states the venue has no minimum.
       # @param label [String, nil] A name for the destination.
       # @param kind [String, nil] One of {KINDS}; the gateway defaults to "exchange".
       # @param reserve_amount [String, nil] Base units to keep in the wallet on a full-balance
       #   ("all") payout; omitted, the gateway's suggestion (the refundable balance still
       #   inside its refund window) applies.
       # @return [Hash] The destination.
-      def create(wallet_id:, chain_id:, token:, address:, confirm_details:, min_amount:, label: nil, kind: nil,
-                 reserve_amount: nil)
+      # @raise [ArgumentError] when neither or both of +min_amount+ / +no_minimum: true+ are
+      #   given, or +min_amount+ is blank.
+      def create(wallet_id:, chain_id:, token:, address:, confirm_details:, min_amount: nil, no_minimum: false,
+                 label: nil, kind: nil, reserve_amount: nil)
+        figure = !min_amount.nil? && !min_amount.to_s.strip.empty?
+        if figure == (no_minimum == true)
+          raise ArgumentError, "exactly one of min_amount (the venue's minimum, base units) or no_minimum: true " \
+                               "is required"
+        end
+
         body = { wallet_id: wallet_id, chain_id: chain_id, token: token, address: address,
                  confirm_details: confirm_details, label: label, kind: kind,
-                 reserve_amount: reserve_amount, min_amount: min_amount }.compact
+                 reserve_amount: reserve_amount, min_amount: min_amount,
+                 no_minimum: (true if no_minimum == true) }.compact
         http.post("/payout_destinations", body)
       end
 
@@ -110,12 +121,12 @@ module Rail0
       # required (ArgumentError otherwise).
       #
       # - +reserve_amount+: base units; an empty string restores the suggestion.
-      # - +min_amount+: base units, +"0"+ when the venue has no minimum (that is how a minimum
-      #   is removed). Never blank: an empty string is refused 422 +minimum_required+. A
-      #   destination registered before the minimum was required may hold none (+nil+): it
-      #   sends nothing (422 +payout_destination_minimum_unset+ on prepare and submit) until
-      #   one is set here.
-      # - A request that CHANGES +min_amount+ also needs +confirm_details: true+ — the same
+      # - +min_amount+: the venue's minimum, base units (+"0"+ is a figure like any other); it
+      #   also clears +no_minimum+. Never blank: an empty string raises ArgumentError here.
+      # - +no_minimum: true+: the venue has no minimum — how a minimum is removed (+min_amount+
+      #   becomes nil). Never together with +min_amount+ (ArgumentError here, 422
+      #   +minimum_conflict+ at the gateway).
+      # - A request that CHANGES +min_amount+ or +no_minimum+ also needs +confirm_details: true+ — the same
       #   attestation as {create} ({CONFIRM_DETAILS_TEXT}), else 422 +confirmation_required+
       #   and nothing is written. Raising the minimum above the destination's latest proof
       #   takes its verification away: prove it again with a new proof.
@@ -125,13 +136,15 @@ module Rail0
       #
       # @param id [String] Destination uuid.
       # @return [Hash] The destination.
-      def update(id, label: UNSET, reserve_amount: UNSET, min_amount: UNSET, active: UNSET,
+      def update(id, label: UNSET, reserve_amount: UNSET, min_amount: UNSET, no_minimum: UNSET, active: UNSET,
                  confirm_details: UNSET)
-        body = { label: label, reserve_amount: reserve_amount, min_amount: min_amount, active: active,
-                 confirm_details: confirm_details }.reject { |_, v| v.equal?(UNSET) }
+        body = { label: label, reserve_amount: reserve_amount, min_amount: min_amount, no_minimum: no_minimum,
+                 active: active, confirm_details: confirm_details }.reject { |_, v| v.equal?(UNSET) }
         if body.except(:confirm_details).empty?
-          raise ArgumentError, "at least one of label, reserve_amount, min_amount or active is required"
+          raise ArgumentError, "at least one of label, reserve_amount, min_amount, no_minimum or active is required"
         end
+
+        check_minimum!(body)
 
         http.patch("/payout_destinations/#{segment(id)}", body)
       end
@@ -153,6 +166,20 @@ module Rail0
       # @return [Hash] { data: Array<Hash>, meta: { ... } }
       def events(id, page: nil, per_page: nil)
         http.get_list("/payout_destinations/#{segment(id)}/events#{build_query(page: page, per_page: per_page)}")
+      end
+
+      private
+
+      # {update}'s local minimum checks, before anything is sent: a blank +min_amount+ is
+      # never a minimum (the gateway's +minimum_required+; +no_minimum: true+ removes one),
+      # and a figure beside +no_minimum: true+ contradicts itself (+minimum_conflict+).
+      def check_minimum!(body)
+        if body.key?(:min_amount) && body[:min_amount].to_s.strip.empty?
+          raise ArgumentError, "min_amount cannot be blank: pass the venue's minimum, or no_minimum: true to remove it"
+        end
+        return unless body.key?(:min_amount) && body[:no_minimum] == true
+
+        raise ArgumentError, "pass min_amount or no_minimum: true, not both"
       end
     end
   end
