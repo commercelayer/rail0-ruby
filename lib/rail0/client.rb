@@ -12,6 +12,8 @@ require_relative "resources/payments"
 require_relative "resources/disputes"
 require_relative "resources/webhooks"
 require_relative "resources/analytics"
+require_relative "resources/payout_destinations"
+require_relative "resources/payouts"
 
 module Rail0
   # Entry point for the RAIL0 SDK.
@@ -48,8 +50,13 @@ module Rail0
     #   @return [Resources::Webhooks] Webhook subscription management (JWT).
     # @!attribute [r] analytics
     #   @return [Resources::Analytics] Account-scoped payment analytics (JWT).
+    # @!attribute [r] payout_destinations
+    #   @return [Resources::PayoutDestinations] Where the merchant's payouts go (JWT).
+    # @!attribute [r] payouts
+    #   @return [Resources::Payouts] Merchant payouts: prepare, sign, submit (JWT).
     attr_reader :auth, :chains, :tokens, :health, :payment_methods,
-                :accounts, :wallets, :payments, :disputes, :webhooks, :analytics
+                :accounts, :wallets, :payments, :disputes, :webhooks, :analytics,
+                :payout_destinations, :payouts
 
     # @param base_url [String] Base URL of the RAIL0 API, e.g. "https://api.rail0.xyz".
     # @param headers [Hash] Default headers merged into every request (e.g. Authorization).
@@ -83,6 +90,8 @@ module Rail0
       @disputes        = Resources::Disputes.new(http)
       @webhooks        = Resources::Webhooks.new(http)
       @analytics       = Resources::Analytics.new(http)
+      @payout_destinations = Resources::PayoutDestinations.new(http)
+      @payouts             = Resources::Payouts.new(http)
       freeze
     end
   end

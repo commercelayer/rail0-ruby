@@ -301,10 +301,16 @@ logging — it says exactly which sessions died, which `revoked_all: true` canno
 ```ruby
 client.chains.list                                    # GET /blockchains (each chain's :contract is the active RAIL0 deployment, :settlement its measured confirm time)
 client.chains.list(network_type: "testnet", symbol: "ETH")
+Rail0::Resources::Chains.resolve(client.chains.list(network_type: "testnet"), "arc")  # by slug (case-insensitive) or chain id; raises on no match / an ambiguous slug
 client.tokens.list                                    # GET /tokens — every token, retired ones included
 client.tokens.list(chain_id: 84532, symbol: "USDC")
 client.tokens.list(active: true)                      # what a NEW payment may use
 ```
+
+Each chain carries a `slug` (e.g. `"arc"`, shared by its testnet and mainnet, unique per
+`network_type`) and `public_rpc_urls` (keyless RPC endpoints the gateway publishes for
+clients). `Chains.resolve(chains, ref)` picks one by chain id or slug without a request; a
+slug matching both networks in the list raises, so filter with `network_type:` or pass the id.
 
 Each chain's `settlement` is how long an operation on it has taken to confirm **on this
 gateway**, end to end (the chain's finality lag plus the gateway/indexer pipeline):
@@ -335,7 +341,7 @@ client.health.get   # GET /health → { status:, api_version:, contract_version:
 
 ## Pagination
 
-Paginated calls return `{ data:, meta: }`. `meta` is `{ page:, per_page:, total:, total_pages:, links: }`.
+Paginated calls return `{ data:, meta: }`. `meta` is `{ page:, per_page:, total:, total_pages:, links:, next_cursor: }`.
 
 `page` is 1-based and bounded to 1..1,000,000 — a value outside is a 400, not an empty
 page. `per_page` defaults to 25 and is capped at 100.
@@ -346,6 +352,22 @@ page. `per_page` defaults to 25 and is capped at 100.
 page = client.payments.list(per_page: 100)
 while page[:meta][:links][:next]
   page = client.payments.list(page: page[:meta][:page] + 1, per_page: 100)
+end
+```
+
+`payments.list` and `payouts.list` also page by **cursor**: pass `after:` (omit it on the
+first page) and follow `meta[:next_cursor]` until it is `nil`. It walks newest first at a
+constant cost per page and carries no total (`total` reads 0); `page:` or a sort other than
+`-created_at` beside `after:` is 422 `invalid_cursor`. `next_cursor` comes from the
+`x-next-cursor` header, or the Link `next`'s `after` when the header is missing, and is
+`nil` on offset pages.
+
+```ruby
+cursor = nil
+loop do
+  page = client.payouts.list(per_page: 100, after: cursor)
+  page[:data].each { |payout| puts payout[:id] }
+  break unless (cursor = page[:meta][:next_cursor])
 end
 ```
 
@@ -625,12 +647,133 @@ client.payments.submit(id, "capture", { signed_transaction: raw })
 client.payments.submit_by_hash(id, "capture", { transaction_hash: "0x…" })
 ```
 
+## Payouts (JWT)
+
+A payout moves the merchant wallet's balance to a **payout destination** — a deposit
+address at an exchange, Circle Mint, an off-ramp provider or your own custody. It is a
+plain ERC-20 `transfer(address,uint256)` from the wallet, signed by the destination's own
+wallet; rail0 never holds the key. Destination amounts (`reserve_amount`, `min_amount`)
+are **base-unit** strings; the `*_formatted` fields beside them carry the human decimals.
+
+### 1. Register a destination (with the confirmation)
+
+Generate the deposit address at the venue **with the network set to the payout's chain**,
+note the venue's minimum deposit, then register it. `confirm_details:` is required and has
+no default: `true` is the merchant's acceptance of the gateway's `details_v1` text
+(`Rail0::Resources::PayoutDestinations::CONFIRM_DETAILS_TEXT`), recorded with who and when:
+
+> I have checked the address, network, token and minimum deposit on the venue's deposit
+> page and confirm they are correct. Funds sent to a wrong address or network, or below the
+> venue's minimum, may be permanently lost and cannot be recovered by rail0.
+
+Show that text and pass the merchant's answer; anything but `true` is 422
+`confirmation_required` and nothing is saved.
+
+```ruby
+dest = client.payout_destinations.create(
+  wallet_id: WALLET_ID,               # the session's own wallet (uuid or address)
+  chain_id: 5042002, token: USDC, address: VENUE_DEPOSIT_ADDRESS,
+  label: "Kraken", kind: "exchange",  # exchange | circle_mint | self_custody | provider
+  min_amount: "5000000",              # the venue's minimum, base units (5 USDC); omit for none
+  confirm_details: merchant_accepted  # true only once the merchant accepted the text above
+)
+dest[:status]                         # => "unverified"
+
+client.payout_destinations.list(status: "verified")       # paged like payments
+client.payout_destinations.get(dest[:id])
+client.payout_destinations.events(dest[:id])               # audit trail, newest first
+```
+
+### 2. Prove it: proof → confirm
+
+An unverified destination can receive the **proof** amount at most: a small test transfer
+(the gateway's proof amount, raised to `min_amount` when that is higher). Send it, wait for
+it to confirm on-chain, check that the venue **credited** it, then confirm:
+
+```ruby
+proof = client.payouts.prepare(destination_id: dest[:id], purpose: "proof")
+client.payouts.sign_and_submit(proof, MERCHANT_PRIVATE_KEY, destination: dest)
+# … poll client.payouts.get(proof[:id]) until status == "confirmed", check the venue …
+client.payout_destinations.confirm(dest[:id])              # => status "verified"
+```
+
+### 3. Pay out: prepare → verify → sign → submit
+
+`amount` is a **human decimal** or `"all"` (the balance minus the reserve, below). A payout
+below the destination's `min_amount` is refused 422 `payout_below_minimum`.
+
+```ruby
+payout = client.payouts.prepare(destination_id: dest[:id], amount: "250.00")
+client.payouts.sign_and_submit(payout, MERCHANT_PRIVATE_KEY,
+                               destination: dest, amount: "250.00", decimals: 6)
+# 202, now "submitted"; poll client.payouts.get(payout[:id]) (or the payouts.confirmed /
+# payouts.failed webhooks) until it settles
+```
+
+`sign_and_submit` is `Rail0::Signing.sign_payout` + `payouts.submit`. Before the key touches
+the prepared `unsigned_transaction`, `Rail0::PayoutVerify.verify` holds it to exactly:
+`to` = the payout's token, `value` 0, `chain_id` = the payout's chain, and calldata
+`0xa9059cbb` + abi(the payout's address, the payout's base-unit amount) with nothing
+trailing. With `destination:` the payout must also be for that registered destination
+(chain, token, address); with `amount:` + `decimals:` its amount must be exactly the one you
+asked for. Anything else raises `Rail0::TxVerify::RefusedSignature` and nothing is signed or
+sent. There is no blind form.
+
+The two steps apart, or the other way to send:
+
+```ruby
+raw = Rail0::Signing.sign_payout(payout, MERCHANT_PRIVATE_KEY, destination: dest,
+                                 amount: "250.00", decimals: 6)
+client.payouts.submit(payout[:id], { signed_transaction: raw })   # the gateway broadcasts
+
+# A wallet that signs and broadcasts itself: verify, send, then report the hash.
+Rail0::PayoutVerify.verify(payout[:unsigned_transaction], payout: payout, destination: dest,
+                           amount: "250.00", decimals: 6)
+client.payouts.submit_by_hash(payout[:id], { transaction_hash: "0x…" })
+
+client.payouts.resend(payout[:id])  # re-broadcast the stored signed bytes (after a 502)
+client.payouts.cancel(payout[:id])  # an UNSIGNED pending payout only
+client.payouts.list(status: %w[pending submitted], purpose: "payout")
+client.payouts.events(payout[:id])
+```
+
+One pending payout per destination: preparing again replaces it while it is unsigned. Once
+a signed transaction is stored, it may still be mined, so it cannot be re-prepared or
+cancelled (409 `payout_already_signed`): `resend` it and let it settle.
+
+A runnable end-to-end flow (register → proof → confirm → payout → poll) is in
+[`examples/06_payouts.rb`](examples/06_payouts.rb).
+
+### Minimum and reserve
+
+- **Minimum** (`min_amount`): the venue's minimum deposit. Below it the venue may never
+  credit a transfer, so the gateway refuses it. Changing it needs the same confirmation, and
+  raising it above the latest proof takes the verification away (prove it again):
+
+  ```ruby
+  client.payout_destinations.update(dest[:id], min_amount: "10000000", confirm_details: merchant_accepted)
+  client.payout_destinations.update(dest[:id], min_amount: "", confirm_details: merchant_accepted)  # none
+  ```
+
+- **Reserve** (`reserve_amount`): what an `"all"` payout leaves in the wallet so refunds can
+  still be paid. Unset, the gateway's suggestion applies (`suggested_reserve`: the refundable
+  balance of payments still inside their refund window).
+
+  ```ruby
+  client.payout_destinations.update(dest[:id], reserve_amount: "100000000")
+  client.payout_destinations.update(dest[:id], reserve_amount: "")   # back to the suggestion
+  client.payout_destinations.update(dest[:id], active: false)        # disable (true re-enables)
+  ```
+
 ## Webhooks (JWT)
 
 One subscription carries a **set** of topics (see `Rail0::Resources::Webhooks::TOPICS`):
 one shared secret and one circuit breaker for all of them, with each delivery naming the
 event that fired in `X-Rail0-Topic`. Two subscriptions for the same `callback_url` must not
-overlap — the gateway answers 409 and names the topic that collided.
+overlap — the gateway answers 409 and names the topic that collided. The payout topics —
+`payouts.confirmed`, `payouts.failed` (the reason is the payout's `error_code`) and
+`payout_destinations.verified` — carry the same envelope (`id`, `emitted_at`, `topic`) with
+the subject under `payout` or `payout_destination` instead of `payment`/`transaction`.
 
 ```ruby
 hook = client.webhooks.create(
@@ -867,6 +1010,8 @@ Requires the `eth` gem. No private key ever leaves your process.
 | `Rail0::PayloadVerify.verify(signing_payload, payment:, signer:, amount: nil)` | The payload pre-sign check on its own — run it before handing the payload to a browser wallet |
 | `sign_transaction(unsigned_transaction, key, payment:, operation:, amount: nil)` | Verify a prepare step's unsigned EIP-1559 transaction against the payment, then sign it; returns the 0x raw tx. Without `payment:` it signs blindly (**deprecated**) |
 | `Rail0::TxVerify.verify(unsigned_transaction, payment:, operation:, amount: nil, signer: nil)` | The pre-sign check on its own — for a signer that is not a local key |
+| `sign_payout(payout, key, destination: nil, amount: nil, decimals: nil)` | Verify a prepared payout's ERC-20 transfer (see [Payouts](#payouts-jwt)), then sign it; returns the 0x raw tx. No blind form |
+| `Rail0::PayoutVerify.verify(unsigned_transaction, payout:, destination: nil, amount: nil, decimals: nil, signer: nil)` | The payout pre-sign check on its own — for a wallet that broadcasts itself |
 | `sign_transfer_with_authorization(signer, domain, params)` | Raw EIP-3009 `TransferWithAuthorization` signer, for talking to a token directly |
 
 ```ruby
@@ -1058,6 +1203,7 @@ lib/rail0/
   signing.rb           EIP-3009 + EIP-1559 signing (requires 'eth')
   tx_verify.rb         Rail0::TxVerify — pre-sign check of an unsigned transaction
   payload_verify.rb    Rail0::PayloadVerify — pre-sign check of an EIP-3009 signing payload
+  payout_verify.rb     Rail0::PayoutVerify — pre-sign check of a payout's ERC-20 transfer
   stablecoins.rb       stablecoin address registry
   dispute_reasons.rb   generated Rail0::DisputeReasons — the dispute-reason dictionary
   types.rb             generated Struct docs of the gateway schema (reference only)
@@ -1074,6 +1220,8 @@ lib/rail0/
     accounts.rb        the caller's own account profile, read and update (JWT)
     webhooks.rb        webhook subscription management (JWT)
     analytics.rb       account-scoped payment analytics (JWT)
+    payout_destinations.rb payout destinations: register, confirm, update (JWT)
+    payouts.rb         merchant payouts: prepare, sign, submit (JWT)
     query.rb           shared query-string and path-segment helpers
 ```
 

@@ -43,7 +43,7 @@ module Rail0
     # A single balance line — the native gas token or one ERC-20.
     AssetBalance = Struct.new(
       :symbol,    # String
-      :address,   # Token contract address; null for the native balance.
+      :address,   # String | nil — Token contract address; null for the native balance.
       :decimals,  # Integer
       :raw,       # String — Balance in base units (exact).
       :amount,    # String — Human-decimal balance.
@@ -54,6 +54,15 @@ module Rail0
     BalanceError = Struct.new(
       :code,     # String
       :message,  # String
+      keyword_init: true
+    )
+
+    # What an account still has in motion (GET /admin/accounts/{id}/exposure, and `exposure` on a 409
+    # account_has_open_exposure).
+    AccountExposure = Struct.new(
+      :payments,  # Hash
+      :payouts,   # Hash
+      :empty,     # Boolean — true when every count is zero.
       keyword_init: true
     )
 
@@ -170,9 +179,11 @@ module Rail0
     Blockchain = Struct.new(
       :chain_id,                # Integer
       :name,                    # String
+      :slug,                    # String — The chain's short name, the same for its testnet and its mainnet (`arc` is Arc Testnet on a testnet gateway, Arc on production): a gateway serves one network class, so a client may name the chain by slug instead of chain_id. Lowercase, unique per network class.
       :native_symbol,           # String
       :network_type,            # String
       :explorer_url,            # String
+      :public_rpc_urls,         # Array — Public, keyless RPC endpoints published for clients that read the chain directly (a balance, a receipt), in failover order: try them in turn. Not necessarily the endpoints the gateway itself uses.
       :required_confirmations,  # Integer — Confirmations this gateway waits for before treating a transaction as settled. The FALLBACK rule: where the chain serves a finality tag (see finality_tag) that tag governs instead, so a client showing this number on such a chain is describing a rule that is not in force.
       :finality_tag,            # String — The block tag the chain calls settled (`safe`, `finalized`), when it serves one — and what the gateway actually gates on. Null where the chain serves none, in which case required_confirmations is counted.
       :contract,                # ChainContract
@@ -211,9 +222,9 @@ module Rail0
     Wallet = Struct.new(
       :id,              # String
       :address,         # String
-      :label,
+      :label,           # String | nil
       :active,          # Boolean
-      :deactivated_by,  # Who switched the wallet off: `owner` (a session signed in with this wallet) or `operator` (an admin session). Null while active, and on a switch-off that predates the record — treated as `operator`. A wallet an operator switched off can be switched back on only by an operator (403 `wallet_deactivated_by_operator`). Always null on GET /payment_methods, which serves active wallets only.
+      :deactivated_by,  # String | nil — Who switched the wallet off: `owner` (a session signed in with this wallet) or `operator` (an admin session). Null while active, and on a switch-off that predates the record — treated as `operator`. A wallet an operator switched off can be switched back on only by an operator (403 `wallet_deactivated_by_operator`). Always null on GET /payment_methods, which serves active wallets only.
       keyword_init: true
     )
 
@@ -232,9 +243,9 @@ module Rail0
     WalletWithTokens = Struct.new(
       :id,              # String
       :address,         # String
-      :label,
+      :label,           # String | nil
       :active,          # Boolean
-      :deactivated_by,  # Who switched the wallet off: `owner` (a session signed in with this wallet) or `operator` (an admin session). Null while active, and on a switch-off that predates the record — treated as `operator`. A wallet an operator switched off can be switched back on only by an operator (403 `wallet_deactivated_by_operator`). Always null on GET /payment_methods, which serves active wallets only.
+      :deactivated_by,  # String | nil — Who switched the wallet off: `owner` (a session signed in with this wallet) or `operator` (an admin session). Null while active, and on a switch-off that predates the record — treated as `operator`. A wallet an operator switched off can be switched back on only by an operator (403 `wallet_deactivated_by_operator`). Always null on GET /payment_methods, which serves active wallets only.
       :tokens,          # Array
       keyword_init: true
     )
@@ -255,21 +266,21 @@ module Rail0
       :payer,                 # String
       :payee,                 # String
       :token,                 # String
-      :decimals,              # Decimals of the payment's token: divide `amount`, `capturable_amount` and `refundable_amount` (base units) by 10^decimals to render them, with no GET /tokens join on `token` + `chain_id`. Resolved from the gateway's in-memory chain catalogue, retired tokens and archived contract versions included. Null only when the gateway cannot resolve the token (a contract it has not loaded, a token deleted outright) — fall back to GET /tokens then.
+      :decimals,              # Integer | nil — Decimals of the payment's token: divide `amount`, `capturable_amount` and `refundable_amount` (base units) by 10^decimals to render them, with no GET /tokens join on `token` + `chain_id`. Resolved from the gateway's in-memory chain catalogue, retired tokens and archived contract versions included. Null only when the gateway cannot resolve the token (a contract it has not loaded, a token deleted outright) — fall back to GET /tokens then.
       :authorization_expiry,  # Integer
       :refund_expiry,         # Integer
       :escrow_stranded,       # Boolean — True exactly inside the stranded-escrow window (#233): a partial capture has permanently ruled void out, and release only opens at authorization_expiry — so no verb can return the buyer's uncaptured escrow until then. Mirrors RAIL0.sol; the gateway names the window, it cannot shorten it.
       :escrow_returnable_at,  # String — When the stranded escrow becomes returnable (release opens) — the authorization expiry as ISO-8601. Null whenever nothing is stranded, so presence alone is the signal.
       :disputed,              # Boolean — True while an open dispute exists.
       :in_flight,             # Boolean — True while one of the payment's transactions is on its way to the chain and not yet settled: status `submitting`, `submitted`, or `pending` holding its signed transaction (the `redrivable` rows — signed and handed over, broadcast not yet sent). A `pending` row still awaiting its signature (an unfinished prepare) does not count, nor do `confirmed`/`failed`. While true the mirrored balances are about to move, so a client should disable further actions on the payment. Carried by list rows too, which embed no transactions; computed for a whole page in one query.
-      :last_error_code,       # Decoded reason of the last failed on-chain attempt; null once the payment makes forward progress. Non-null means the latest attempt failed.
-      :last_error_message,    # Human-readable form of last_error_code.
-      :description,
-      :reference,             # This payment's identifier in the merchant's own system; set at create, correctable by the payee.
-      :reference_origin,      # The system the reference comes from, a lowercase slug (e.g. commercelayer).
-      :merchant_note,         # The payee's internal note (PATCH /payments/{id}). Present only when the session is the payment's PAYEE, and on the operator's Full view; absent for the payer.
-      :metadata,
-      :signed_at,             # When the payer signature was stored (null while unsigned).
+      :last_error_code,       # String | nil — Decoded reason of the last failed on-chain attempt; null once the payment makes forward progress. Non-null means the latest attempt failed.
+      :last_error_message,    # String | nil — Human-readable form of last_error_code.
+      :description,           # String | nil
+      :reference,             # String | nil — This payment's identifier in the merchant's own system; set at create, correctable by the payee.
+      :reference_origin,      # String | nil — The system the reference comes from, a lowercase slug (e.g. commercelayer).
+      :merchant_note,         # String | nil — The payee's internal note (PATCH /payments/{id}). Present only when the session is the payment's PAYEE, and on the operator's Full view; absent for the payer.
+      :metadata,              # Hash | nil
+      :signed_at,             # String | nil — When the payer signature was stored (null while unsigned).
       :created_at,            # String
       :updated_at,            # String
       keyword_init: true
@@ -283,23 +294,23 @@ module Rail0
       :reason,                    # String — On-chain bytes32 reason the dispute was opened with (hex); the all-zero word when no reason was given; kept verbatim even when it is outside the dispute-reason dictionary.
       :reason_code,               # DisputeOpenReason | nil — The DisputeOpenReason code `reason` reads as; null when no reason was given (the zero bytes32) or when the bytes32 is not in the dictionary (a direct contract call).
       :reason_description,        # String — English description of `reason_code`; "No reason given" when `reason` is the zero bytes32; "Unrecognised reason" when it is a non-zero bytes32 outside the dictionary.
-      :opened_block,
+      :opened_block,              # Integer | nil
       :opened_at,                 # String
-      :closed_by,
-      :close_reason,              # On-chain bytes32 close reason (hex); the all-zero word when closed with no reason; null while the dispute is open.
+      :closed_by,                 # String | nil
+      :close_reason,              # String | nil — On-chain bytes32 close reason (hex); the all-zero word when closed with no reason; null while the dispute is open.
       :close_reason_code,         # DisputeCloseReason | DisputeSystemCloseReason | nil — The code `close_reason` reads as: a DisputeCloseReason, or the system DisputeSystemCloseReason `full_refund` when a full refund auto-closed the dispute. Null while open, when closed with no reason (the zero bytes32), or when the bytes32 is not in the dictionary.
-      :close_reason_description,  # English description of `close_reason_code`; "No reason given" when `close_reason` is the zero bytes32; "Unrecognised reason" when it is a non-zero bytes32 outside the dictionary; null while open.
-      :closed_block,
-      :closed_at,
+      :close_reason_description,  # String | nil — English description of `close_reason_code`; "No reason given" when `close_reason` is the zero bytes32; "Unrecognised reason" when it is a non-zero bytes32 outside the dictionary; null while open.
+      :closed_block,              # Integer | nil
+      :closed_at,                 # String | nil
       keyword_init: true
     )
 
     # What the callback did with a test event (POST /webhooks/{id}/test).
     WebhookTestResult = Struct.new(
       :delivered,         # Boolean — The endpoint answered 2xx.
-      :response_code,     # The HTTP status it answered; null when no response came (see error_reason).
-      :response_message,  # Up to 1000 printable characters of its response body.
-      :error_reason,      # Why no response came: a refused address, a TLS or connection error, the deadline.
+      :response_code,     # String | nil — The HTTP status it answered; null when no response came (see error_reason).
+      :response_message,  # String | nil — Up to 1000 printable characters of its response body.
+      :error_reason,      # String | nil — Why no response came: a refused address, a TLS or connection error, the deadline.
       :duration_ms,       # Integer — How long the attempt took.
       keyword_init: true
     )
@@ -310,22 +321,22 @@ module Rail0
       :operation,             # String — Which on-chain call this row attempts. A SUPERSET of the `{operation}` path enum: `dispute` and `close_dispute` have their own hand-written routes rather than living under the generic namespace, but they mint transaction rows like any other operation, so a generated client must be able to represent them.
       :status,                # String
       :redrivable,            # Boolean — True when this transaction's broadcast can be re-enqueued: it is `pending` and the gateway holds its signed transaction, i.e. a send that was prepared and signed but never reached the chain. The same predicate `POST /payments/{id}/transactions/{transaction_id}/redrive` guards on, so a client can offer the action exactly when it will succeed instead of on a 422. False on a `pending` row that holds no signed transaction - there the next step is submitting the signature, not a redrive.
-      :error_code,            # Decoded failure code, null unless `status` is "failed". Same catalogue as an error body's `code`: a RAIL0 custom error (`not_payee`), a token-level revert (`insufficient_token_balance`, `invalid_token_signature`, `authorization_already_used`), a Solidity panic, or a rejection that stopped the broadcast before the chain saw it (`insufficient_gas_funds`, `nonce_too_low`).
+      :error_code,            # String | nil — Decoded failure code, null unless `status` is "failed". Same catalogue as an error body's `code`: a RAIL0 custom error (`not_payee`), a token-level revert (`insufficient_token_balance`, `invalid_token_signature`, `authorization_already_used`), a Solidity panic, or a rejection that stopped the broadcast before the chain saw it (`insufficient_gas_funds`, `nonce_too_low`).
       :error_title,           # String — Short label for `error_code`; null unless failed.
       :error_detail,          # String — Sentence explaining the failure; null unless failed. Carries the chain's own words when the revert was not one the gateway recognises.
-      :unsigned_transaction,
-      :transaction_hash,
-      :sender,                # The address that SIGNED the submitted transaction, recovered from the signature by the gateway at submit — a fact, not a client claim. Null where the gateway held no signature to recover from (a report-by-hash submit, where the wallet broadcast it itself) or where nothing has been submitted yet. This is what makes `release` gas attributable: that operation is payer-OR-payee, so whose cost it is depends on who signed.
-      :amount,                # Amount in token BASE units. On capture and refund it is the amount the caller asked for. On void and release it is PROVISIONAL — those operations carry no amount and move the whole uncaptured escrow, so this is the capturable residual as of prepare, re-sealed with the exact on-chain amount when the indexer confirms.
-      :block_number,
-      :gas_used,              # Gas units used, mirrored from the indexer on confirm.
-      :gas_limit,             # Gas limit, mirrored from the indexer on confirm.
-      :effective_gas_price,   # Effective gas price in wei, mirrored from the indexer on confirm.
-      :base_fee_per_gas,      # Block base fee per gas in wei, mirrored from the indexer on confirm.
-      :gas_cost,              # Total gas cost in wei (gas_used * effective_gas_price); derived, null until confirmed.
-      :pending_at,
-      :submitted_at,
-      :confirmed_at,
+      :unsigned_transaction,  # String | nil
+      :transaction_hash,      # String | nil
+      :sender,                # String | nil — The address that SIGNED the submitted transaction, recovered from the signature by the gateway at submit — a fact, not a client claim. Null where the gateway held no signature to recover from (a report-by-hash submit, where the wallet broadcast it itself) or where nothing has been submitted yet. This is what makes `release` gas attributable: that operation is payer-OR-payee, so whose cost it is depends on who signed.
+      :amount,                # String | nil — Amount in token BASE units. On capture and refund it is the amount the caller asked for. On void and release it is PROVISIONAL — those operations carry no amount and move the whole uncaptured escrow, so this is the capturable residual as of prepare, re-sealed with the exact on-chain amount when the indexer confirms.
+      :block_number,          # Integer | nil
+      :gas_used,              # String | nil — Gas units used, mirrored from the indexer on confirm.
+      :gas_limit,             # String | nil — Gas limit, mirrored from the indexer on confirm.
+      :effective_gas_price,   # String | nil — Effective gas price in wei, mirrored from the indexer on confirm.
+      :base_fee_per_gas,      # String | nil — Block base fee per gas in wei, mirrored from the indexer on confirm.
+      :gas_cost,              # String | nil — Total gas cost in wei (gas_used * effective_gas_price); derived, null until confirmed.
+      :pending_at,            # String | nil
+      :submitted_at,          # String | nil
+      :confirmed_at,          # String | nil
       :created_at,            # String
       :updated_at,            # String
       keyword_init: true
@@ -339,10 +350,10 @@ module Rail0
       :address,        # String
       :version,        # String — Semver, and every ACTIVE deployment must agree on the one the code targets.
       :deployed_at,    # String
-      :start_block,    # Where the indexer starts. Null means the deployment block.
+      :start_block,    # Integer | nil — Where the indexer starts. Null means the deployment block.
       :active,         # Boolean — The single deployment new payments are opened against, at most one per chain.
       :archived,       # Boolean — Always false here: the listing excludes archived deployments.
-      :archived_at,
+      :archived_at,    # String | nil
       :created_at,     # String
       :updated_at,     # String
       keyword_init: true
@@ -356,7 +367,7 @@ module Rail0
     Account = Struct.new(
       :id,                 # String
       :name,               # String
-      :email,
+      :email,              # String | nil
       :priority_tip,       # Boolean — Whether the merchant's own transactions tip the network's suggested priority fee (true, the default) or the chain's minimum tip (false: 0 on most chains, 25 gwei on Polygon PoS/Amoy). The buyer's dispute/close_dispute never read it.
       :authorization_ttl,  # Integer — Seconds an authorization of the account's new payments stays capturable after the payment is created: the account's own value, or the gateway default (AUTHORIZATION_TTL).
       :refund_ttl,         # Integer — Seconds the account's new payments stay refundable, and open to a dispute, after they are created: the account's own value, or the gateway default (REFUND_TTL).
@@ -402,15 +413,15 @@ module Rail0
       :name,               # String
       :email,              # String — Lowercase.
       :address,            # String — Lowercase 0x + 40 hex.
-      :created_by,         # The operator account of an invite; null for a sign-up.
+      :created_by,         # String | nil — The operator account of an invite; null for a sign-up.
       :link_version,       # Integer — The version of the last link minted; a link for any lower one answers onboarding_link_superseded.
       :last_sent_at,       # String — When the last send was queued.
       :send_count,         # Integer — Sends queued in all (0 for a request migrated from a pending account, which has no link in the current format yet).
-      :last_delivered_at,  # When the provider accepted the last send.
-      :last_send_error,    # A short fixed code for why the last send failed (provider_rejected, timeout, email_domain_not_allowed, …); null when it was delivered or is in flight.
+      :last_delivered_at,  # String | nil — When the provider accepted the last send.
+      :last_send_error,    # String | nil — A short fixed code for why the last send failed (provider_rejected, timeout, email_domain_not_allowed, …); null when it was delivered or is in flight.
       :expires_at,         # String — When the last link, and the open request, expire.
-      :completed_at,       # When the claim created the account.
-      :terms_version,      # The terms version accepted at the claim.
+      :completed_at,       # String | nil — When the claim created the account.
+      :terms_version,      # String | nil — The terms version accepted at the claim.
       :created_at,         # String
       :updated_at,         # String
       :status,             # String
@@ -541,17 +552,19 @@ module Rail0
     )
 
     EventCallback = Struct.new(
-      :id,                # String
-      :webhook_id,        # String
-      :payment_id,        # String
-      :topic,             # String
-      :callback_url,      # String
-      :response_code,
-      :response_message,
-      :error_reason,
-      :status,            # String
-      :created_at,        # String
-      :payload,           # The JSON request body POSTed to the callback URL (decompressed).
+      :id,                     # String
+      :webhook_id,             # String
+      :payment_id,             # String | nil — The payment a payments.* delivery is about. Exactly one of payment_id, payout_id and payout_destination_id is set.
+      :payout_id,              # String | nil — The payout a payouts.* delivery is about.
+      :payout_destination_id,  # String | nil — The destination a payout_destinations.verified delivery is about.
+      :topic,                  # String
+      :callback_url,           # String
+      :response_code,          # String | nil
+      :response_message,       # String | nil
+      :error_reason,           # String | nil
+      :status,                 # String
+      :created_at,             # String
+      :payload,                # String | nil — The JSON request body POSTed to the callback URL (decompressed).
       keyword_init: true
     )
 
@@ -562,6 +575,81 @@ module Rail0
       :payment_id,        # String — Protocol-level rail0_id.
       :chain_id,          # Integer
       :contract_address,  # String — Address (lowercase) of the RAIL0 deployment the payment is bound to, archived versions included. The sweeper accepts a receipt's event only when this contract emitted it.
+      keyword_init: true
+    )
+
+    # One entry of the payout audit trail, written in the same transaction as the change it records.
+    # Append-only.
+    PayoutEvent = Struct.new(
+      :id,              # String
+      :action,          # String
+      :actor,           # String — Who did it: the lowercase 0x address of the session wallet; `system` for the gateway's own settlement (Recovery); `operator:<administrator id>` reserved for an operator (none today).
+      :changes,         # Hash | nil — `{"before": {…}, "after": {…}}` of the fields the event changed, either side optional. Amounts in base units. Never a signature or a payload. `destination.created` and `destination.min_amount_changed` also carry `confirmed_details`: `{"version": "details_v1", "by": <session address>, "at": <ISO 8601 UTC>}`, the merchant's attestation that they checked the details at the venue.
+      :destination_id,  # String | nil — The destination, also on every payout event.
+      :payout_id,       # String | nil — Null for a destination event, and once Retention purged the payout (a never-signed prepare).
+      :wallet_id,       # String — The destination's / payout's wallet (not necessarily the actor's).
+      :created_at,      # String
+      keyword_init: true
+    )
+
+    # An account named and nothing more, embedded where an operator listing must say whose row each is.
+    AccountSummary = Struct.new(
+      :id,    # String
+      :name,  # String
+      keyword_init: true
+    )
+
+    PayoutDestination = Struct.new(
+      :id,                           # String
+      :wallet_id,                    # String
+      :chain_id,                     # Integer
+      :token,                        # String — ERC-20 address on that chain, lowercased.
+      :token_symbol,                 # String | nil
+      :address,                      # String — The deposit address, lowercased.
+      :label,                        # String | nil
+      :kind,                         # String
+      :status,                       # String
+      :has_code,                     # Boolean | nil — Whether the address held code on this chain when registered (eth_getCode, best effort). An EOA and an undeployed contract look the same.
+      :reserve_amount,               # String | nil — Base units kept in the wallet on a full-balance payout; null = the suggestion.
+      :reserve_amount_formatted,     # String | nil — `reserve_amount` in human decimals (the token's decimals); null while the suggestion applies, or when the token left the catalog.
+      :suggested_reserve,            # String — Base units: the refundable balance of the wallet's payments in this token still inside their refund window.
+      :suggested_reserve_formatted,  # String | nil — `suggested_reserve` in human decimals; null when the token left the catalog.
+      :min_amount,                   # String | nil — The venue's deposit minimum, base units; null = no minimum. A payout below it is refused (`payout_below_minimum`); the proof transfer is raised to it.
+      :min_amount_formatted,         # String | nil — `min_amount` in human decimals (the token's decimals); null when there is no minimum, or when the token left the catalog.
+      :proof_payout_id,              # String | nil
+      :verified_at,                  # String | nil
+      :disabled_at,                  # String | nil
+      :created_at,                   # String
+      :updated_at,                   # String
+      keyword_init: true
+    )
+
+    Payout = Struct.new(
+      :id,                    # String
+      :destination_id,        # String
+      :wallet_id,             # String
+      :chain_id,              # Integer
+      :token,                 # String
+      :token_symbol,          # String | nil
+      :address,               # String — The recipient.
+      :amount,                # String — Base units.
+      :amount_formatted,      # String — Human decimals.
+      :purpose,               # String
+      :status,                # String
+      :unsigned_transaction,  # String | nil — JSON of the EIP-1559 transaction to sign (`to` = the token, `data` = transfer(address,uint256)). Check it against the decoded fields beside it before signing.
+      :signed,                # Boolean — Whether the gateway stores the wallet's signed transaction (the payload itself is never exposed). A `pending` payout with `signed: true` already has its `transaction_hash` and may be in a mempool: resend it (POST /payouts/{id}/resend); it cannot be re-prepared.
+      :transaction_hash,      # String | nil — Keccak of the signed transaction, stored with it on submit (so a signed `pending` row has it too), or the hash the wallet reported.
+      :sender,                # String | nil
+      :block_number,          # Integer | nil
+      :gas_used,              # String | nil
+      :error_code,            # String | nil — When failed: `reverted` (mined, status 0), `foreign_transfer` (mined, but the receipt has no Transfer of this amount of this token from the wallet to this destination), `dropped` (not mined, and the wallet's confirmed nonce has passed the signed transaction's), `submission_timeout` (a reported hash no node has ever known, past SUBMITTED_TX_TTL), `cancelled` (unsigned, cancelled by the merchant with POST /payouts/{id}/cancel or by disabling its destination). `submission_timeout` and `dropped` are not final: POST /payouts/{id}/submitted with a late hash puts the payout back to `submitted`.
+      :error_title,           # String | nil
+      :error_detail,          # String | nil
+      :submitted_at,          # String | nil
+      :confirmed_at,          # String | nil
+      :failed_at,             # String | nil
+      :created_at,            # String
+      :updated_at,            # String
       keyword_init: true
     )
   end

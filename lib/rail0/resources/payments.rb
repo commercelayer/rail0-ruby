@@ -74,7 +74,12 @@ module Rail0
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
       # @param page [Integer, nil] Page number (1-based; 1..1,000,000, 400 outside).
       # @param per_page [Integer, nil] Items per page (max 100).
-      # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }. Each row
+      # @param after [String, nil] Cursor paging: the previous page's `meta[:next_cursor]`.
+      #   Walks newest first at a constant cost per page, with no total (`total` reads 0);
+      #   `page:` and any `sort:` other than "-created_at" beside it are 422 `invalid_cursor`.
+      #   Omit it on the first page (pass `per_page:` alone) and follow `next_cursor` until nil.
+      # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total:, total_pages:, links:,
+      #   next_cursor: } }. Each row
       #   carries, besides the payment fields, `chain_id`, `decimals` (Integer, or nil when
       #   the gateway can't resolve the token — fall back to {Tokens#list} then) to render the
       #   base-unit amounts without a token lookup, and `in_flight` (Boolean: a transaction is
@@ -84,7 +89,7 @@ module Rail0
                chain_id: nil, disputed: nil, operation: nil, min_amount: nil, max_amount: nil,
                created_from: nil, created_to: nil, scope: nil, account_id: nil, has_error: nil,
                expiring_within: nil, reference: nil, reference_origin: nil, sort: nil, page: nil,
-               per_page: nil)
+               per_page: nil, after: nil)
         query = build_query(status: status, mode: mode, payer: payer, payee: payee, token: token,
                             rail0_id: rail0_id, reference: reference, reference_origin: reference_origin,
                             chain_id: chain_id, disputed: disputed,
@@ -93,7 +98,7 @@ module Rail0
                             created_from: created_from, created_to: created_to,
                             scope: scope, account_id: account_id, has_error: has_error,
                             expiring_within: expiring_within,
-                            sort: sort, page: page, per_page: per_page)
+                            sort: sort, page: page, per_page: per_page, after: after)
         http.get_list("/payments#{query}")
       end
 
