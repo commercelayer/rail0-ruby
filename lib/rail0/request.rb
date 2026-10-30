@@ -143,6 +143,7 @@ module Rail0
     end
 
     def page_meta(response)
+      links = page_links(response["link"])
       {
         page:        response["x-page"].to_i,
         per_page:    response["x-per-page"].to_i,
@@ -150,8 +151,25 @@ module Rail0
         # Zero for an empty collection: "no pages" is what there are, so a pager
         # rendered off this renders none. (rail0-gateway#242)
         total_pages: response["x-total-pages"].to_i,
-        links:       page_links(response["link"])
+        links:       links,
+        next_cursor: next_cursor(response["x-next-cursor"], links[:next])
       }.freeze
+    end
+
+    # The cursor of the next page on a cursor-paged list (the +after:+ of payments.list
+    # and payouts.list): the x-next-cursor header, or — should a proxy have dropped it —
+    # the +after+ query parameter of the Link +next+. nil on the last page, and on an
+    # offset-paged response (whose +next+ carries +page=+, not +after=+).
+    def next_cursor(header, next_link)
+      cursor = header.to_s.strip
+      return cursor unless cursor.empty?
+      return nil if next_link.nil?
+
+      query = next_link.split("?", 2)[1]
+      return nil if query.nil?
+
+      value = URI.decode_www_form(query).assoc("after")&.last
+      value.nil? || value.empty? ? nil : value
     end
 
     # RFC 8288 Link into { first:, prev:, next:, last: }. `first`/`last` are always

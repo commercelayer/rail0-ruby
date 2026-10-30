@@ -50,12 +50,15 @@ module Rail0
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
       # @param page [Integer, nil] Page number (1-based).
       # @param per_page [Integer, nil] Items per page (default 25, max 100).
-      # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total:, total_pages:, links: } }
+      # @param after [String, nil] Cursor paging, as on {Payments#list}: the previous page's
+      #   `meta[:next_cursor]`; no total, and not combinable with `page:` or another sort.
+      # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total:, total_pages:, links:,
+      #   next_cursor: } }
       def list(destination_id: nil, wallet_id: nil, status: nil, purpose: nil, created_from: nil,
-               created_to: nil, sort: nil, page: nil, per_page: nil)
+               created_to: nil, sort: nil, page: nil, per_page: nil, after: nil)
         query = build_query(destination_id: destination_id, wallet_id: wallet_id, status: status,
                             purpose: purpose, created_from: created_from, created_to: created_to,
-                            sort: sort, page: page, per_page: per_page)
+                            sort: sort, page: page, per_page: per_page, after: after)
         http.get_list("/payouts#{query}")
       end
 

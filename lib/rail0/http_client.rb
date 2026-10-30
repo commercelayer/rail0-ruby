@@ -64,7 +64,8 @@ module Rail0
     # headers (not a {data, meta} envelope), so this reads the meta back from the
     # headers and wraps the array. Non-paginated array endpoints (blockchains,
     # tokens, payment_methods) use plain #get instead.
-    # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total: } }
+    # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total:, total_pages:, links:,
+    #   next_cursor: } } — next_cursor is set only on a cursor-paged list with a next page.
     def get_list(path)
       request(:get, path, nil, paginated: true)
     end

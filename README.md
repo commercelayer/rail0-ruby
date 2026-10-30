@@ -341,7 +341,7 @@ client.health.get   # GET /health → { status:, api_version:, contract_version:
 
 ## Pagination
 
-Paginated calls return `{ data:, meta: }`. `meta` is `{ page:, per_page:, total:, total_pages:, links: }`.
+Paginated calls return `{ data:, meta: }`. `meta` is `{ page:, per_page:, total:, total_pages:, links:, next_cursor: }`.
 
 `page` is 1-based and bounded to 1..1,000,000 — a value outside is a 400, not an empty
 page. `per_page` defaults to 25 and is capped at 100.
@@ -352,6 +352,22 @@ page. `per_page` defaults to 25 and is capped at 100.
 page = client.payments.list(per_page: 100)
 while page[:meta][:links][:next]
   page = client.payments.list(page: page[:meta][:page] + 1, per_page: 100)
+end
+```
+
+`payments.list` and `payouts.list` also page by **cursor**: pass `after:` (omit it on the
+first page) and follow `meta[:next_cursor]` until it is `nil`. It walks newest first at a
+constant cost per page and carries no total (`total` reads 0); `page:` or a sort other than
+`-created_at` beside `after:` is 422 `invalid_cursor`. `next_cursor` comes from the
+`x-next-cursor` header, or the Link `next`'s `after` when the header is missing, and is
+`nil` on offset pages.
+
+```ruby
+cursor = nil
+loop do
+  page = client.payouts.list(per_page: 100, after: cursor)
+  page[:data].each { |payout| puts payout[:id] }
+  break unless (cursor = page[:meta][:next_cursor])
 end
 ```
 
@@ -724,6 +740,9 @@ client.payouts.events(payout[:id])
 One pending payout per destination: preparing again replaces it while it is unsigned. Once
 a signed transaction is stored, it may still be mined, so it cannot be re-prepared or
 cancelled (409 `payout_already_signed`): `resend` it and let it settle.
+
+A runnable end-to-end flow (register → proof → confirm → payout → poll) is in
+[`examples/06_payouts.rb`](examples/06_payouts.rb).
 
 ### Minimum and reserve
 
