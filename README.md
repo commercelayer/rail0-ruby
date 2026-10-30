@@ -658,7 +658,11 @@ are **base-unit** strings; the `*_formatted` fields beside them carry the human 
 ### 1. Register a destination (with the confirmation)
 
 Generate the deposit address at the venue **with the network set to the payout's chain**,
-note the venue's minimum deposit, then register it. `confirm_details:` is required and has
+note the venue's minimum deposit, then register it. The minimum is required, as exactly one
+of `min_amount:` (the venue's figure in base units, from its deposit page) or
+`no_minimum: true` (the merchant states the venue has none). Neither, a blank figure, or both
+raise `ArgumentError` before anything is sent, and nothing is defaulted: a minimum nobody
+looked up is how a deposit gets lost. `confirm_details:` is required and has
 no default: `true` is the merchant's acceptance of the gateway's `details_v1` text
 (`Rail0::Resources::PayoutDestinations::CONFIRM_DETAILS_TEXT`), recorded with who and when:
 
@@ -674,7 +678,7 @@ dest = client.payout_destinations.create(
   wallet_id: WALLET_ID,               # the session's own wallet (uuid or address)
   chain_id: 5042002, token: USDC, address: VENUE_DEPOSIT_ADDRESS,
   label: "Kraken", kind: "exchange",  # exchange | circle_mint | self_custody | provider
-  min_amount: "5000000",              # the venue's minimum, base units (5 USDC); omit for none
+  min_amount: "5000000",              # the venue's minimum, base units (5 USDC) — or no_minimum: true
   confirm_details: merchant_accepted  # true only once the merchant accepted the text above
 )
 dest[:status]                         # => "unverified"
@@ -747,12 +751,17 @@ A runnable end-to-end flow (register → proof → confirm → payout → poll) 
 ### Minimum and reserve
 
 - **Minimum** (`min_amount`): the venue's minimum deposit. Below it the venue may never
-  credit a transfer, so the gateway refuses it. Changing it needs the same confirmation, and
-  raising it above the latest proof takes the verification away (prove it again):
+  credit a transfer, so the gateway refuses it. It is required and explicit: a figure
+  (`"0"` included), or `no_minimum: true` when the venue has none — the destination then
+  reads `no_minimum: true` with `min_amount` nil (`no_minimum: false` with a nil `min_amount`
+  is a destination registered before the minimum was asked: never stated). A blank figure,
+  or a figure beside `no_minimum: true`, raises `ArgumentError` (the gateway's
+  `minimum_required` / `minimum_conflict`). Changing either needs the same confirmation, and
+  raising the minimum above the latest proof takes the verification away (prove it again):
 
   ```ruby
   client.payout_destinations.update(dest[:id], min_amount: "10000000", confirm_details: merchant_accepted)
-  client.payout_destinations.update(dest[:id], min_amount: "", confirm_details: merchant_accepted)  # none
+  client.payout_destinations.update(dest[:id], no_minimum: true, confirm_details: merchant_accepted) # none
   ```
 
 - **Reserve** (`reserve_amount`): what an `"all"` payout leaves in the wallet so refunds can

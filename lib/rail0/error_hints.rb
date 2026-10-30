@@ -114,7 +114,7 @@ module Rail0
     "onboarding_link_expired" => "the link has expired — sign up again, or ask your RAIL0 contact for a new link",
     "onboarding_link_superseded" => "a newer link was sent for this request and this one no longer works — use the link in the most recent email",
     # Payouts (gateway#455): the merchant's transfer of its balance to a payout destination.
-    "confirmation_required" => "registering a payout destination, or changing its min_amount, needs confirm_details: true — the merchant's confirmation that they checked the address, network, token and minimum deposit at the venue (PayoutDestinations::CONFIRM_DETAILS_TEXT)",
+    "confirmation_required" => "registering a payout destination, or changing its min_amount or no_minimum, needs confirm_details: true — the merchant's confirmation that they checked the address, network, token and minimum deposit at the venue (PayoutDestinations::CONFIRM_DETAILS_TEXT)",
     "payout_destination_exists" => "this wallet already has a destination with this address for this token and chain — use it (payout_destinations.list)",
     "payout_destination_zero_address" => "the zero address cannot receive a payout — register the venue's deposit address",
     "payout_destination_own_wallet" => "the destination is the paying wallet itself — register the deposit address of the exchange, Circle Mint account or another wallet you control",
@@ -122,6 +122,8 @@ module Rail0
     "payout_destination_disabled" => "the destination is disabled — re-enable it (payout_destinations.update(id, active: true)) or choose another one",
     "payout_destination_unverified" => "the destination is not verified: send the proof (payouts.prepare(purpose: \"proof\")), wait for it to confirm, check the venue credited it, then payout_destinations.confirm — until then only the proof amount can be sent",
     "payout_destination_proof_missing" => "the proof transfer has not confirmed on-chain yet — prepare, sign and submit it (purpose: \"proof\"), wait for payouts.get to say confirmed, then confirm the destination",
+    "minimum_required" => "a payout destination needs its venue's minimum deposit: min_amount (base units, from the venue's deposit page), or no_minimum: true when the venue has none — a blank min_amount is not one (to remove a minimum, send no_minimum: true)",
+    "minimum_conflict" => "min_amount and no_minimum: true contradict each other — send the venue's minimum, or no_minimum: true when it has none, not both",
     "payout_below_minimum" => "the amount is below the destination's min_amount (the venue may never credit it) — send at least the minimum; for \"all\", the balance after the reserve is below it",
     "insufficient_balance" => "the wallet does not hold enough of the token for this amount after the refund reserve — the detail names what is available",
     "payout_limit_reached" => "this wallet reached its hourly payout limit — retry later",

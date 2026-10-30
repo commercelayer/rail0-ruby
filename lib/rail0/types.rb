@@ -615,6 +615,7 @@ module Rail0
       :suggested_reserve,            # String — Base units: the refundable balance of the wallet's payments in this token still inside their refund window.
       :suggested_reserve_formatted,  # String | nil — `suggested_reserve` in human decimals; null when the token left the catalog.
       :min_amount,                   # String | nil — The venue's deposit minimum, base units; null = no minimum. A payout below it is refused (`payout_below_minimum`); the proof transfer is raised to it.
+      :no_minimum,                   # Boolean — true when the merchant stated the venue has no minimum deposit (`min_amount` is then null). false with a null `min_amount`: never stated (a destination registered before it was asked).
       :min_amount_formatted,         # String | nil — `min_amount` in human decimals (the token's decimals); null when there is no minimum, or when the token left the catalog.
       :proof_payout_id,              # String | nil
       :verified_at,                  # String | nil
@@ -635,12 +636,13 @@ module Rail0
       :amount,                # String — Base units.
       :amount_formatted,      # String — Human decimals.
       :purpose,               # String
-      :status,                # String
+      :status,                # String — `pending` (prepared, awaiting the signature) → `submitted` (hash known; still `submitted` once mined, until its block is final) → `confirmed` | `failed`. Both outcomes are decided only once the receipt's block is at or below the chain's finality bound (its `finality_tag` block, or head − `required_confirmations` for `depth` or a node that serves no tag) and still canonical; `payouts.confirmed` / `payouts.failed` fire then.
       :unsigned_transaction,  # String | nil — JSON of the EIP-1559 transaction to sign (`to` = the token, `data` = transfer(address,uint256)). Check it against the decoded fields beside it before signing.
       :signed,                # Boolean — Whether the gateway stores the wallet's signed transaction (the payload itself is never exposed). A `pending` payout with `signed: true` already has its `transaction_hash` and may be in a mempool: resend it (POST /payouts/{id}/resend); it cannot be re-prepared.
       :transaction_hash,      # String | nil — Keccak of the signed transaction, stored with it on submit (so a signed `pending` row has it too), or the hash the wallet reported.
       :sender,                # String | nil
-      :block_number,          # Integer | nil
+      :block_number,          # Integer | nil — The receipt's block. Set when the gateway first sees the receipt (the payout stays `submitted` until that block is final) moved to the new block if a reorg re-includes the transaction elsewhere, and cleared only while no block holds it.
+      :mined_at,              # String | nil — When the gateway first saw the receipt (its own clock, not the block's timestamp). Non-null on a `submitted` payout: mined, waiting for finality.
       :gas_used,              # String | nil
       :error_code,            # String | nil — When failed: `reverted` (mined, status 0), `foreign_transfer` (mined, but the receipt has no Transfer of this amount of this token from the wallet to this destination), `dropped` (not mined, and the wallet's confirmed nonce has passed the signed transaction's), `submission_timeout` (a reported hash no node has ever known, past SUBMITTED_TX_TTL), `cancelled` (unsigned, cancelled by the merchant with POST /payouts/{id}/cancel or by disabling its destination). `submission_timeout` and `dropped` are not final: POST /payouts/{id}/submitted with a late hash puts the payout back to `submitted`.
       :error_title,           # String | nil
