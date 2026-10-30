@@ -14,7 +14,7 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
   let(:json) { { "Content-Type" => "application/json" } }
   let(:destination) do
     { id: PAYOUT_DESTINATION_ID, wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN.downcase,
-      address: "0x9999999999999999999999999999999999999999", status: "unverified", min_amount: nil }
+      address: "0x9999999999999999999999999999999999999999", status: "unverified", min_amount: "0" }
   end
 
   it "quotes the gateway's details_v1 text" do
@@ -43,8 +43,39 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
     it "requires confirm_details and sends it with the destination" do
       expect do
         client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
-                                          address: destination[:address])
+                                          address: destination[:address], min_amount: "0")
       end.to raise_error(ArgumentError, /confirm_details/)
+    end
+
+    it "requires min_amount: no default, the merchant states it" do
+      expect do
+        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+                                          address: destination[:address], confirm_details: true)
+      end.to raise_error(ArgumentError, /min_amount/)
+    end
+
+    it "sends \"0\" as given (the venue has no minimum)" do
+      stub = stub_request(:post, "#{BASE_URL}/payout_destinations")
+             .with(body: { wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, address: destination[:address],
+                           confirm_details: true, min_amount: "0" }.to_json)
+             .to_return(status: 201, body: destination.to_json, headers: json)
+
+      client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+                                        address: destination[:address], confirm_details: true, min_amount: "0")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "surfaces minimum_required with its hint" do
+      stub_request(:post, "#{BASE_URL}/payout_destinations")
+        .to_return(status: 422, body: { code: "minimum_required", title: "Minimum deposit required",
+                                        detail: "State the venue's minimum deposit…" }.to_json, headers: json)
+
+      expect do
+        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+                                          address: destination[:address], confirm_details: true, min_amount: "")
+      end.to raise_error(Rail0::ApiError) { |e| expect(e.error).to eq("minimum_required") }
+      expect(Rail0.describe_error("minimum_required")).to include("\"0\"")
     end
 
     it "POSTs only the fields given" do
@@ -68,7 +99,8 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
 
       expect do
         client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
-                                          address: destination[:address], confirm_details: false)
+                                          address: destination[:address], confirm_details: false,
+                                          min_amount: "0")
       end.to raise_error(Rail0::ApiError) { |e| expect(e.error).to eq("confirmation_required") }
       expect(Rail0.describe_error("confirmation_required")).to include("confirm_details: true")
     end
@@ -87,7 +119,17 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
       expect(stub).to have_been_requested
     end
 
-    it "sends an empty string (restore the suggestion / remove the minimum) and active: false" do
+    it "removes the minimum with \"0\"" do
+      stub = stub_request(:patch, path)
+             .with(body: { min_amount: "0", confirm_details: true }.to_json)
+             .to_return(status: 200, body: destination.to_json, headers: json)
+
+      client.payout_destinations.update(PAYOUT_DESTINATION_ID, min_amount: "0", confirm_details: true)
+
+      expect(stub).to have_been_requested
+    end
+
+    it "sends an empty reserve_amount (restore the suggestion) and active: false" do
       stub = stub_request(:patch, path)
              .with(body: { reserve_amount: "", active: false }.to_json)
              .to_return(status: 200, body: destination.to_json, headers: json)
@@ -238,7 +280,7 @@ RSpec.describe "payout webhook topics and error hints" do
   end
 
   it "hints every payout error code the gateway documents" do
-    %w[confirmation_required payout_below_minimum payout_destination_unverified payout_destination_disabled
+    %w[confirmation_required minimum_required payout_destination_minimum_unset payout_below_minimum payout_destination_unverified payout_destination_disabled
        payout_destination_proof_missing payout_destination_exists payout_destination_zero_address
        payout_destination_own_wallet payout_destination_is_contract payout_already_signed payout_not_pending
        payout_not_signed payout_hash_in_use payout_limit_reached insufficient_balance account_deactivated

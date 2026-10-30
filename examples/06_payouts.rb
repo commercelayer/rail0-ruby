@@ -2,7 +2,7 @@
 
 # Merchant payout: move the wallet's balance to a venue (exchange, Circle Mint, …)
 #
-#   merchant registers the deposit address   → POST /payout_destinations (confirm_details: true)
+#   merchant registers the deposit address   → POST /payout_destinations (min_amount, confirm_details: true)
 #   merchant sends the small proof transfer  → POST /payouts/prepare (purpose: proof) → sign → submit
 #   (poll) waits for the proof to confirm    → GET  /payouts/:id
 #   merchant confirms the venue credited it  → POST /payout_destinations/:id/confirm
@@ -21,7 +21,7 @@ WALLET_ID     = ENV.fetch("RAIL0_WALLET_ID")        # that wallet's uuid (or its
 CHAIN_ID      = Integer(ENV.fetch("RAIL0_CHAIN_ID", "5042002"))
 TOKEN         = ENV.fetch("RAIL0_TOKEN")            # the token's address on that chain
 DEPOSIT_ADDR  = ENV.fetch("VENUE_DEPOSIT_ADDRESS")  # generated at the venue FOR THIS NETWORK
-VENUE_MINIMUM = ENV.fetch("VENUE_MIN_AMOUNT", nil)  # the venue's minimum deposit, base units
+VENUE_MINIMUM = ENV.fetch("VENUE_MIN_AMOUNT")       # the venue's minimum deposit, base units; "0" for none
 AMOUNT        = ENV.fetch("PAYOUT_AMOUNT", "all")   # a human decimal, or "all"
 
 GATEWAY = "https://api.rail0.xyz"

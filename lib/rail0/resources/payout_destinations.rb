@@ -70,6 +70,11 @@ module Rail0
       # refused 422 +confirmation_required+ and nothing is saved. Pass the merchant's answer,
       # never a hard-coded +true+.
       #
+      # +min_amount+ is REQUIRED too, with no default on purpose: the venue's deposit minimum
+      # as the merchant read it on the venue's deposit page, or +"0"+ when the venue has none.
+      # Left out or blank, the gateway refuses it 422 +minimum_required+ — a minimum nobody
+      # looked up is how a deposit gets lost, so never fill it in with a hard-coded +"0"+.
+      #
       # @param wallet_id [String] The wallet (uuid or address) that will sign transfers to it;
       #   must be the session's own.
       # @param chain_id [Integer] The chain the deposit address was issued for.
@@ -77,16 +82,17 @@ module Rail0
       # @param address [String] The deposit address, generated at the venue WITH THE NETWORK
       #   SET TO THIS CHAIN.
       # @param confirm_details [Boolean] The merchant's acceptance of {CONFIRM_DETAILS_TEXT}.
+      # @param min_amount [String] The venue's deposit minimum in base units, +"0"+ when the
+      #   venue has none. A payout below it is refused (+payout_below_minimum+) and the proof
+      #   is raised to it.
       # @param label [String, nil] A name for the destination.
       # @param kind [String, nil] One of {KINDS}; the gateway defaults to "exchange".
       # @param reserve_amount [String, nil] Base units to keep in the wallet on a full-balance
       #   ("all") payout; omitted, the gateway's suggestion (the refundable balance still
       #   inside its refund window) applies.
-      # @param min_amount [String, nil] The venue's deposit minimum in base units; omitted, none.
-      #   A payout below it is refused (+payout_below_minimum+) and the proof is raised to it.
       # @return [Hash] The destination.
-      def create(wallet_id:, chain_id:, token:, address:, confirm_details:, label: nil, kind: nil,
-                 reserve_amount: nil, min_amount: nil)
+      def create(wallet_id:, chain_id:, token:, address:, confirm_details:, min_amount:, label: nil, kind: nil,
+                 reserve_amount: nil)
         body = { wallet_id: wallet_id, chain_id: chain_id, token: token, address: address,
                  confirm_details: confirm_details, label: label, kind: kind,
                  reserve_amount: reserve_amount, min_amount: min_amount }.compact
@@ -103,8 +109,12 @@ module Rail0
       # Update a destination. Only the keywords you PASS are sent, and at least one is
       # required (ArgumentError otherwise).
       #
-      # - +reserve_amount+ / +min_amount+: base units; an empty string restores the suggestion
-      #   (reserve) or removes the minimum.
+      # - +reserve_amount+: base units; an empty string restores the suggestion.
+      # - +min_amount+: base units, +"0"+ when the venue has no minimum (that is how a minimum
+      #   is removed). Never blank: an empty string is refused 422 +minimum_required+. A
+      #   destination registered before the minimum was required may hold none (+nil+): it
+      #   sends nothing (422 +payout_destination_minimum_unset+ on prepare and submit) until
+      #   one is set here.
       # - A request that CHANGES +min_amount+ also needs +confirm_details: true+ — the same
       #   attestation as {create} ({CONFIRM_DETAILS_TEXT}), else 422 +confirmation_required+
       #   and nothing is written. Raising the minimum above the destination's latest proof

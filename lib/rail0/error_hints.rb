@@ -122,6 +122,8 @@ module Rail0
     "payout_destination_disabled" => "the destination is disabled — re-enable it (payout_destinations.update(id, active: true)) or choose another one",
     "payout_destination_unverified" => "the destination is not verified: send the proof (payouts.prepare(purpose: \"proof\")), wait for it to confirm, check the venue credited it, then payout_destinations.confirm — until then only the proof amount can be sent",
     "payout_destination_proof_missing" => "the proof transfer has not confirmed on-chain yet — prepare, sign and submit it (purpose: \"proof\"), wait for payouts.get to say confirmed, then confirm the destination",
+    "minimum_required" => "a payout destination needs min_amount: the venue's minimum deposit in base units from its deposit page, \"0\" when the venue has none — it cannot be left out or blank (to remove a minimum, send \"0\")",
+    "payout_destination_minimum_unset" => "the destination has no minimum deposit stated (registered before it was required) and sends nothing until one is set — payout_destinations.update(id, min_amount: ..., confirm_details: true), \"0\" when the venue has none",
     "payout_below_minimum" => "the amount is below the destination's min_amount (the venue may never credit it) — send at least the minimum; for \"all\", the balance after the reserve is below it",
     "insufficient_balance" => "the wallet does not hold enough of the token for this amount after the refund reserve — the detail names what is available",
     "payout_limit_reached" => "this wallet reached its hourly payout limit — retry later",
