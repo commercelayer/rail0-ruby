@@ -301,10 +301,16 @@ logging — it says exactly which sessions died, which `revoked_all: true` canno
 ```ruby
 client.chains.list                                    # GET /blockchains (each chain's :contract is the active RAIL0 deployment, :settlement its measured confirm time)
 client.chains.list(network_type: "testnet", symbol: "ETH")
+Rail0::Resources::Chains.resolve(client.chains.list(network_type: "testnet"), "arc")  # by slug (case-insensitive) or chain id; raises on no match / an ambiguous slug
 client.tokens.list                                    # GET /tokens — every token, retired ones included
 client.tokens.list(chain_id: 84532, symbol: "USDC")
 client.tokens.list(active: true)                      # what a NEW payment may use
 ```
+
+Each chain carries a `slug` (e.g. `"arc"`, shared by its testnet and mainnet, unique per
+`network_type`) and `public_rpc_urls` (keyless RPC endpoints the gateway publishes for
+clients). `Chains.resolve(chains, ref)` picks one by chain id or slug without a request; a
+slug matching both networks in the list raises, so filter with `network_type:` or pass the id.
 
 Each chain's `settlement` is how long an operation on it has taken to confirm **on this
 gateway**, end to end (the chain's finality lag plus the gateway/indexer pipeline):

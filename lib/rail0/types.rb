@@ -179,9 +179,11 @@ module Rail0
     Blockchain = Struct.new(
       :chain_id,                # Integer
       :name,                    # String
+      :slug,                    # String — The chain's short name, the same for its testnet and its mainnet (`arc` is Arc Testnet on a testnet gateway, Arc on production): a gateway serves one network class, so a client may name the chain by slug instead of chain_id. Lowercase, unique per network class.
       :native_symbol,           # String
       :network_type,            # String
       :explorer_url,            # String
+      :public_rpc_urls,         # Array — Public, keyless RPC endpoints published for clients that read the chain directly (a balance, a receipt), in failover order: try them in turn. Not necessarily the endpoints the gateway itself uses.
       :required_confirmations,  # Integer — Confirmations this gateway waits for before treating a transaction as settled. The FALLBACK rule: where the chain serves a finality tag (see finality_tag) that tag governs instead, so a client showing this number on such a chain is describing a rule that is not in force.
       :finality_tag,            # String — The block tag the chain calls settled (`safe`, `finalized`), when it serves one — and what the gateway actually gates on. Null where the chain serves none, in which case required_confirmations is counted.
       :contract,                # ChainContract
