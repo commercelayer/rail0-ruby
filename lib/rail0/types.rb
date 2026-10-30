@@ -615,6 +615,7 @@ module Rail0
       :suggested_reserve,            # String — Base units: the refundable balance of the wallet's payments in this token still inside their refund window.
       :suggested_reserve_formatted,  # String | nil — `suggested_reserve` in human decimals; null when the token left the catalog.
       :min_amount,                   # String | nil — The venue's deposit minimum, base units; null = no minimum. A payout below it is refused (`payout_below_minimum`); the proof transfer is raised to it.
+      :no_minimum,                   # Boolean — true when the merchant stated the venue has no minimum deposit (`min_amount` is then null). false with a null `min_amount`: never stated (a destination registered before it was asked).
       :min_amount_formatted,         # String | nil — `min_amount` in human decimals (the token's decimals); null when there is no minimum, or when the token left the catalog.
       :proof_payout_id,              # String | nil
       :verified_at,                  # String | nil
