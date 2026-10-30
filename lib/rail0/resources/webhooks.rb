@@ -16,6 +16,10 @@ module Rail0
       include Query
 
       # Event topics a subscription can carry. It may carry any non-empty subset.
+      # The payout topics deliver the same envelope ({id, emitted_at, topic}) with the
+      # subject under its own key: +payout+ for payouts.confirmed / payouts.failed (a
+      # failure's reason is its +error_code+), +payout_destination+ for
+      # payout_destinations.verified.
       TOPICS = %w[
         payments.created
         payments.signed
@@ -30,6 +34,9 @@ module Rail0
         payments.failed
         payments.disputed
         payments.dispute_closed
+        payouts.confirmed
+        payouts.failed
+        payout_destinations.verified
       ].freeze
 
       attr_reader :http

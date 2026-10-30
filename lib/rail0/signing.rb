@@ -15,6 +15,7 @@ end
 
 require_relative "tx_verify"
 require_relative "payload_verify"
+require_relative "payout_verify"
 
 module Rail0
   # EIP-712 and EIP-3009 signing utilities for RAIL0 payments.
@@ -277,6 +278,49 @@ module Rail0
              "so it is verified first", uplevel: 1, category: :deprecated)
       end
 
+      assemble_and_sign(unsigned_transaction, key)
+    end
+
+    # Verify, then sign, a prepared payout's +unsigned_transaction+ — the ERC-20
+    # +transfer(address,uint256)+ that moves the merchant's balance to a payout
+    # destination — and return the signed raw transaction for {Resources::Payouts#submit}.
+    #
+    # Before the key touches it, {Rail0::PayoutVerify.verify} holds the transaction to the
+    # payout: value 0, the payout's chain, +to+ = the payout's token, the key's own address
+    # as +from+, and calldata EXACTLY +transfer(payout.address, payout.amount)+ with nothing
+    # trailing. With +destination:+ the payout must also be for that registered destination
+    # (chain, token, address); with +amount:+ (the human decimal you asked prepare for) and
+    # +decimals:+ its amount must be exactly that. A mismatch raises
+    # {Rail0::TxVerify::RefusedSignature} naming the field, and nothing is signed. There is
+    # no blind form.
+    #
+    #   destination = client.payout_destinations.get(destination_id)
+    #   payout = client.payouts.prepare(destination_id: destination_id, amount: "250.00")
+    #   raw = Rail0::Signing.sign_payout(payout, MERCHANT_PRIVATE_KEY, destination: destination,
+    #                                    amount: "250.00", decimals: 6)
+    #   client.payouts.submit(payout[:id], signed_transaction: raw)
+    #
+    # {Resources::Payouts#sign_and_submit} does the last two steps in one call.
+    #
+    # @param payout [Hash] the prepared payout (from +payouts.prepare+ or +payouts.get+)
+    # @param private_key [String, Eth::Key] the destination wallet's key
+    # @param destination [Hash, nil] the registered destination the payout must be for
+    # @param amount [String, nil] the human decimal passed to prepare (not "all")
+    # @param decimals [Integer, nil] the token's decimals, required with +amount:+
+    # @return [String] 0x-prefixed RLP-encoded signed transaction
+    def self.sign_payout(payout, private_key, destination: nil, amount: nil, decimals: nil)
+      key = private_key.is_a?(Eth::Key) ? private_key : Eth::Key.new(priv: private_key.delete_prefix("0x"))
+      unsigned = payout.is_a?(Hash) ? (payout[:unsigned_transaction] || payout["unsigned_transaction"]) : nil
+      tx = PayoutVerify.verify(unsigned, payout: payout, destination: destination, amount: amount,
+                                         decimals: decimals, signer: key.address.to_s)
+      assemble_and_sign(tx, key)
+    end
+
+    # Assembles the EIP-1559 transaction from the gateway's field-set and signs it with
+    # +key+ (an Eth::Key). Shared by {sign_transaction} and {sign_payout}, AFTER their
+    # checks: the field-set has already been verified, or deliberately not (the deprecated
+    # blind form).
+    def self.assemble_and_sign(unsigned_transaction, key)
       f = unsigned_transaction.is_a?(String) ? JSON.parse(unsigned_transaction) : unsigned_transaction
       f = f.transform_keys(&:to_s)
 
@@ -308,6 +352,8 @@ module Rail0
       tx.sign(key)
       "0x#{tx.hex}"
     end
+
+    private_class_method :assemble_and_sign
 
     # Verify, then sign, the EIP-3009 +signing_payload+ of a create, get or refund
     # prepare response. The checked form — prefer it over the bare {sign_payload}.

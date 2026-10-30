@@ -61,15 +61,24 @@ def type_comment(prop_def)
     # A nullable reference (`anyOf: [{$ref}, …, {type: null}]`): name the refs, then nil.
     hints = prop_def["anyOf"].map { |e| e.key?("$ref") ? ref_name(e["$ref"]) : (e["type"] == "null" ? "nil" : e["type"]) }
     hints.compact.join(" | ")
+  elsif prop_def["type"].is_a?(Array)
+    # OpenAPI 3.1 nullable form, `type: ["string", "null"]` — the payout schemas use it
+    # throughout. Rendered like the anyOf branch ("String | nil") instead of no hint at all.
+    hints = prop_def["type"].map { |t| t == "null" ? "nil" : scalar_type_name(t) }
+    hints.compact.join(" | ")
   else
-    case prop_def["type"]
-    when "integer" then "Integer"
-    when "number"  then "Numeric"
-    when "boolean" then "Boolean"
-    when "string"  then "String"
-    when "array"   then "Array"
-    when "object"  then "Hash"
-    end
+    scalar_type_name(prop_def["type"])
+  end
+end
+
+def scalar_type_name(type)
+  case type
+  when "integer" then "Integer"
+  when "number"  then "Numeric"
+  when "boolean" then "Boolean"
+  when "string"  then "String"
+  when "array"   then "Array"
+  when "object"  then "Hash"
   end
 end
 

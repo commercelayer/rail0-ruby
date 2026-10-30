@@ -185,7 +185,8 @@ module Rail0
 
     # The encodings a zero native value legitimately arrives in — absent, nil, the
     # number 0, or the string "0" / "0x0". A whitelist, deliberately: anything
-    # unrecognised must refuse the signature rather than be guessed at.
+    # unrecognised must refuse the signature rather than be guessed at. Public because
+    # {Rail0::PayoutVerify} holds a payout transfer to the same rule.
     def self.zero_native_value?(value)
       case value
       when nil then true
@@ -201,7 +202,7 @@ module Rail0
       left.to_s.casecmp(right.to_s).zero?
     end
 
-    private_class_method :refuse, :zero_native_value?, :same_address?
+    private_class_method :refuse, :same_address?
 
     # Scales the human amount the CALLER typed by the payment's token decimals, for
     # comparison against the calldata. nil when the operation takes no amount. For one
