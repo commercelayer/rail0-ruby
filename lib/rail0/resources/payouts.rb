@@ -20,8 +20,9 @@ module Rail0
     # +failed+, or subscribe to the +payouts.confirmed+ / +payouts.failed+ webhooks.
     #
     # Amounts: +prepare+'s +amount+ is a HUMAN decimal ("250.00") or "all" (the balance
-    # minus the destination's reserve); the payout record's +amount+ is base units, with
-    # +amount_formatted+ beside it.
+    # minus what the payout keeps back); the payout record's +amount+ is base units, with
+    # +amount_formatted+ beside it, and +refund_reserve+ / +gas_reserve+ record what it kept
+    # back (base units; nil for a proof).
     class Payouts
       include Query
 
@@ -70,17 +71,29 @@ module Rail0
       #   +min_amount+ when that is higher; +amount+ is ignored. An unverified destination
       #   may receive the proof at most.
       # - +purpose: "payout"+ (the default) sends +amount+: a human decimal, or "all" for
-      #   the balance minus the reserve. Below the destination's +min_amount+ it is refused
-      #   422 +payout_below_minimum+.
+      #   the balance minus what is kept back. Below the destination's +min_amount+ it is
+      #   refused 422 +payout_below_minimum+.
+      # - What a payout keeps back in the wallet is decided here, at payout time: the refund
+      #   reserve (the refundable balance of payments still inside their refund window) and,
+      #   on a chain whose gas is this very token (Arc's USDC), the gas reserve (gas for the
+      #   refunds and captures the wallet still owes). Both are kept by default;
+      #   +keep_refund_reserve: false+ / +keep_gas_reserve: false+ opts this payout out of one
+      #   (a refund or capture after it may then fail for lack of funds). Payout purpose only;
+      #   sent only when given. {PayoutDestinations#reserves} shows the figures beforehand.
       # - A payout that already holds a signed transaction cannot be re-prepared (409
       #   +payout_already_signed+): {resend} it, or let it settle.
       #
       # @param destination_id [String] Destination uuid.
       # @param purpose [String, nil] One of {PURPOSES}; the gateway defaults to "payout".
       # @param amount [String, nil] Human decimal or "all"; required for a payout.
+      # @param keep_refund_reserve [Boolean, nil] +false+ opts out of keeping the refund
+      #   reserve; the gateway defaults to +true+.
+      # @param keep_gas_reserve [Boolean, nil] +false+ opts out of keeping the gas reserve;
+      #   the gateway defaults to +true+.
       # @return [Hash] The pending payout.
-      def prepare(destination_id:, purpose: nil, amount: nil)
-        body = { destination_id: destination_id, purpose: purpose, amount: amount }.compact
+      def prepare(destination_id:, purpose: nil, amount: nil, keep_refund_reserve: nil, keep_gas_reserve: nil)
+        body = { destination_id: destination_id, purpose: purpose, amount: amount,
+                 keep_refund_reserve: keep_refund_reserve, keep_gas_reserve: keep_gas_reserve }.compact
         http.post("/payouts/prepare", body)
       end
 

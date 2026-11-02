@@ -13,8 +13,10 @@ module Rail0
     # merchant has checked the venue credited it ({#confirm}). Until then it can receive the
     # proof amount at most. See {Payouts} for the transfer itself.
     #
-    # Amounts on a destination (+reserve_amount+, +min_amount+) are BASE-UNIT strings (digits
-    # only, below 2^120); the +*_formatted+ fields beside them carry the human decimals.
+    # Amounts on a destination (+min_amount+) are BASE-UNIT strings (digits only, below
+    # 2^120); the +*_formatted+ fields beside them carry the human decimals. What a payout
+    # keeps back in the wallet (the refund and gas reserves) is decided at payout time, not
+    # stored on the destination: see {#reserves} and {Payouts#prepare}.
     class PayoutDestinations
       # The default of {update}'s keywords: "not passed", told apart from an explicit value.
       UNSET = Object.new.freeze
@@ -49,9 +51,12 @@ module Rail0
       # @param sort [String, nil] Comma-separated sort fields; prefix with - for desc.
       # @param page [Integer, nil] Page number (1-based).
       # @param per_page [Integer, nil] Items per page (max 100).
+      # @param include_deleted [Boolean, nil] +true+ lists deleted destinations too
+      #   (+deleted_at+ set); left out by default.
       # @return [Hash] { data: Array<Hash>, meta: { page:, per_page:, total:, total_pages:, links: } }
-      def list(wallet_id: nil, status: nil, sort: nil, page: nil, per_page: nil)
-        query = build_query(wallet_id: wallet_id, status: status, sort: sort, page: page, per_page: per_page)
+      def list(wallet_id: nil, status: nil, sort: nil, page: nil, per_page: nil, include_deleted: nil)
+        query = build_query(wallet_id: wallet_id, status: status, sort: sort, page: page, per_page: per_page,
+                            include_deleted: include_deleted)
         http.get_list("/payout_destinations#{query}")
       end
 
@@ -89,14 +94,11 @@ module Rail0
       # @param no_minimum [Boolean] +true+: the merchant states the venue has no minimum.
       # @param label [String, nil] A name for the destination.
       # @param kind [String, nil] One of {KINDS}; the gateway defaults to "exchange".
-      # @param reserve_amount [String, nil] Base units to keep in the wallet on a full-balance
-      #   ("all") payout; omitted, the gateway's suggestion (the refundable balance still
-      #   inside its refund window) applies.
       # @return [Hash] The destination.
       # @raise [ArgumentError] when neither or both of +min_amount+ / +no_minimum: true+ are
       #   given, or +min_amount+ is blank.
       def create(wallet_id:, chain_id:, token:, address:, confirm_details:, min_amount: nil, no_minimum: false,
-                 label: nil, kind: nil, reserve_amount: nil)
+                 label: nil, kind: nil)
         figure = !min_amount.nil? && !min_amount.to_s.strip.empty?
         if figure == (no_minimum == true)
           raise ArgumentError, "exactly one of min_amount (the venue's minimum, base units) or no_minimum: true " \
@@ -104,8 +106,7 @@ module Rail0
         end
 
         body = { wallet_id: wallet_id, chain_id: chain_id, token: token, address: address,
-                 confirm_details: confirm_details, label: label, kind: kind,
-                 reserve_amount: reserve_amount, min_amount: min_amount,
+                 confirm_details: confirm_details, label: label, kind: kind, min_amount: min_amount,
                  no_minimum: (true if no_minimum == true) }.compact
         http.post("/payout_destinations", body)
       end
@@ -120,7 +121,6 @@ module Rail0
       # Update a destination. Only the keywords you PASS are sent, and at least one is
       # required (ArgumentError otherwise).
       #
-      # - +reserve_amount+: base units; an empty string restores the suggestion.
       # - +min_amount+: the venue's minimum, base units (+"0"+ is a figure like any other); it
       #   also clears +no_minimum+. Never blank: an empty string raises ArgumentError here.
       # - +no_minimum: true+: the venue has no minimum — how a minimum is removed (+min_amount+
@@ -136,17 +136,49 @@ module Rail0
       #
       # @param id [String] Destination uuid.
       # @return [Hash] The destination.
-      def update(id, label: UNSET, reserve_amount: UNSET, min_amount: UNSET, no_minimum: UNSET, active: UNSET,
-                 confirm_details: UNSET)
-        body = { label: label, reserve_amount: reserve_amount, min_amount: min_amount, no_minimum: no_minimum,
-                 active: active, confirm_details: confirm_details }.reject { |_, v| v.equal?(UNSET) }
+      def update(id, label: UNSET, min_amount: UNSET, no_minimum: UNSET, active: UNSET, confirm_details: UNSET)
+        body = { label: label, min_amount: min_amount, no_minimum: no_minimum, active: active,
+                 confirm_details: confirm_details }.reject { |_, v| v.equal?(UNSET) }
         if body.except(:confirm_details).empty?
-          raise ArgumentError, "at least one of label, reserve_amount, min_amount, no_minimum or active is required"
+          raise ArgumentError, "at least one of label, min_amount, no_minimum or active is required"
         end
 
         check_minimum!(body)
 
         http.patch("/payout_destinations/#{segment(id)}", body)
+      end
+
+      # Delete a destination (soft): it leaves the lists ({list} shows it again with
+      # +include_deleted: true+) and its address is free to be registered again. The row is
+      # kept — its payouts and audit trail still name it, and {get} / {events} still read it
+      # with +deleted_at+ set and +status+ "disabled". Its pending payout is settled first, as
+      # on a switch-off: an unsigned one is cancelled, a signed one refuses the delete 409
+      # +payout_already_signed+. Only the destination's own wallet may delete it; a deleted
+      # destination takes no further write (404). Recorded as +destination.deleted+.
+      # @param id [String] Destination uuid.
+      # @return [Hash] The destination as it now stands.
+      def delete(id)
+        http.delete("/payout_destinations/#{segment(id)}")
+      end
+
+      # What a payout to the destination would keep back in the wallet right now, computed
+      # from the wallet's payments and the chain's current fees (nothing is stored):
+      #
+      # - +refund_reserve+: the refundable balance of the wallet's payments in this token
+      #   still inside their refund window (+refundable_payments+ of them).
+      # - +gas_reserve+: on a chain whose gas IS this token (+native_gas+, Arc's USDC), the gas
+      #   for those refunds and for capturing the open authorizations plus +base_captures+
+      #   more; "0" elsewhere.
+      # - +gas_allowance+: the payout transfer's own fee, always kept back on a native-gas chain.
+      # - +available+: what +amount: "all"+ moves with both reserves kept (the default).
+      #
+      # Every amount is base units with its +*_formatted+ twin. Both reserves can be opted
+      # out of per payout ({Payouts#prepare}'s +keep_refund_reserve:+ / +keep_gas_reserve:+).
+      # Any wallet of the account may read it; a deleted destination still reads.
+      # @param id [String] Destination uuid.
+      # @return [Hash] The reserves (see Rail0::Types::PayoutReserves).
+      def reserves(id)
+        http.get("/payout_destinations/#{segment(id)}/reserves")
       end
 
       # The merchant's attestation that the venue CREDITED the proof transfer: marks the

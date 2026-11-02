@@ -37,9 +37,29 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
       expect(result[:data].first[:id]).to eq(PAYOUT_DESTINATION_ID)
       expect(result[:meta]).to include(page: 2, per_page: 10, total: 11, total_pages: 2)
     end
+
+    it "lists deleted destinations too with include_deleted: true" do
+      stub = stub_request(:get, "#{BASE_URL}/payout_destinations?include_deleted=true")
+             .to_return(status: 200, body: [destination.merge(deleted_at: "2026-11-02T10:00:00Z")].to_json,
+                        headers: json.merge("X-Total-Count" => "1"))
+
+      result = client.payout_destinations.list(include_deleted: true)
+
+      expect(result[:data].first[:deleted_at]).to eq("2026-11-02T10:00:00Z")
+      expect(stub).to have_been_requested
+    end
   end
 
   describe "#create" do
+    it "no longer takes reserve_amount (decided at payout time)" do
+      expect do
+        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+                                          address: destination[:address], confirm_details: true,
+                                          min_amount: "0", reserve_amount: "1")
+      end.to raise_error(ArgumentError, /reserve_amount/)
+      expect(a_request(:post, "#{BASE_URL}/payout_destinations")).not_to have_been_made
+    end
+
     it "requires confirm_details and sends it with the destination" do
       expect do
         client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
@@ -159,14 +179,21 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
       expect(a_request(:patch, path)).not_to have_been_made
     end
 
-    it "sends an empty reserve_amount (restore the suggestion) and active: false" do
+    it "sends active: false" do
       stub = stub_request(:patch, path)
-             .with(body: { reserve_amount: "", active: false }.to_json)
+             .with(body: { active: false }.to_json)
              .to_return(status: 200, body: destination.to_json, headers: json)
 
-      client.payout_destinations.update(PAYOUT_DESTINATION_ID, reserve_amount: "", active: false)
+      client.payout_destinations.update(PAYOUT_DESTINATION_ID, active: false)
 
       expect(stub).to have_been_requested
+    end
+
+    it "no longer takes reserve_amount (decided at payout time)" do
+      expect do
+        client.payout_destinations.update(PAYOUT_DESTINATION_ID, reserve_amount: "")
+      end.to raise_error(ArgumentError, /reserve_amount/)
+      expect(a_request(:patch, path)).not_to have_been_made
     end
 
     it "refuses an update with nothing to change" do
@@ -191,6 +218,43 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
     expect(client.payout_destinations.events(PAYOUT_DESTINATION_ID, per_page: 5)[:data].first[:action])
       .to eq("destination.created")
     expect([get, confirm, events]).to all(have_been_requested)
+  end
+
+  describe "#delete" do
+    it "DELETEs the destination and answers it with deleted_at set" do
+      deleted = destination.merge(status: "disabled", deleted_at: "2026-11-02T10:00:00Z")
+      stub = stub_request(:delete, "#{BASE_URL}/payout_destinations/#{PAYOUT_DESTINATION_ID}")
+             .to_return(status: 200, body: deleted.to_json, headers: json)
+
+      result = client.payout_destinations.delete(PAYOUT_DESTINATION_ID)
+
+      expect(result).to include(status: "disabled", deleted_at: "2026-11-02T10:00:00Z")
+      expect(stub).to have_been_requested
+    end
+
+    it "surfaces payout_already_signed when a signed payout is pending" do
+      stub_request(:delete, "#{BASE_URL}/payout_destinations/#{PAYOUT_DESTINATION_ID}")
+        .to_return(status: 409, body: { code: "payout_already_signed" }.to_json, headers: json)
+
+      expect { client.payout_destinations.delete(PAYOUT_DESTINATION_ID) }
+        .to raise_error(Rail0::ApiError) { |e| expect(e.error).to eq("payout_already_signed") }
+    end
+  end
+
+  it "#reserves reads what a payout would keep back" do
+    reserves = { destination_id: PAYOUT_DESTINATION_ID, chain_id: 5_042_002, token: TOKEN.downcase,
+                 token_symbol: "USDC", decimals: 6, balance: "1000000000", balance_formatted: "1000.00",
+                 refund_reserve: "40000000", refund_reserve_formatted: "40.00", refundable_payments: 3,
+                 native_gas: true, gas_reserve: "120000", gas_reserve_formatted: "0.12", gas_refunds: 3,
+                 open_authorizations: 1, base_captures: 5, gas_allowance: "10000",
+                 gas_allowance_formatted: "0.01", available: "959870000", available_formatted: "959.87" }
+    stub = stub_request(:get, "#{BASE_URL}/payout_destinations/#{PAYOUT_DESTINATION_ID}/reserves")
+           .to_return(status: 200, body: reserves.to_json, headers: json)
+
+    result = client.payout_destinations.reserves(PAYOUT_DESTINATION_ID)
+
+    expect(result).to include(refund_reserve: "40000000", gas_reserve: "120000", available: "959870000")
+    expect(stub).to have_been_requested
   end
 
   it "escapes the id into one path segment" do
@@ -239,6 +303,18 @@ RSpec.describe Rail0::Resources::Payouts do
              .to_return(status: 201, body: payout.to_json, headers: json)
 
       client.payouts.prepare(destination_id: PAYOUT_DESTINATION_ID, purpose: "payout", amount: "all")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "sends keep_refund_reserve / keep_gas_reserve only when given" do
+      stub = stub_request(:post, "#{BASE_URL}/payouts/prepare")
+             .with(body: { destination_id: PAYOUT_DESTINATION_ID, amount: "all", keep_refund_reserve: false,
+                           keep_gas_reserve: true }.to_json)
+             .to_return(status: 201, body: payout.to_json, headers: json)
+
+      client.payouts.prepare(destination_id: PAYOUT_DESTINATION_ID, amount: "all", keep_refund_reserve: false,
+                             keep_gas_reserve: true)
 
       expect(stub).to have_been_requested
     end
