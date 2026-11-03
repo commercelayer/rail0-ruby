@@ -791,8 +791,8 @@ A runnable end-to-end flow (register → proof → confirm → payout → poll) 
   ```
 
 - **Disable and delete**: `active: false` disables a destination (`true` re-enables it with
-  the verification it had). `delete` removes it from the lists and frees its address to be
-  registered again; the row is kept (`get` and `events` still read it, with `deleted_at` set
+  the verification it had). `delete` removes it from the lists and frees its payment method:
+  one destination per token and chain, so another address can be registered there; the row is kept (`get` and `events` still read it, with `deleted_at` set
   and `status` `"disabled"`). Either settles a pending payout first: an unsigned one is
   cancelled, a signed one refuses with 409 `payout_already_signed`.
 
