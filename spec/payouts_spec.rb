@@ -53,7 +53,7 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
   describe "#create" do
     it "no longer takes reserve_amount (decided at payout time)" do
       expect do
-        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, label: "Kraken",
                                           address: destination[:address], confirm_details: true,
                                           min_amount: "0", reserve_amount: "1")
       end.to raise_error(ArgumentError, /reserve_amount/)
@@ -62,14 +62,14 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
 
     it "requires confirm_details and sends it with the destination" do
       expect do
-        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, label: "Kraken",
                                           address: destination[:address], min_amount: "0")
       end.to raise_error(ArgumentError, /confirm_details/)
     end
 
     it "requires exactly one of min_amount or no_minimum: true, and sends nothing otherwise" do
       base = { wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, address: destination[:address],
-               confirm_details: true }
+               label: "Kraken", confirm_details: true }
       [{}, { min_amount: "" }, { min_amount: "  ", no_minimum: false }, { no_minimum: false },
        { min_amount: "5000000", no_minimum: true }].each do |minimum|
         expect { client.payout_destinations.create(**base, **minimum) }
@@ -81,10 +81,10 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
     it "sends no_minimum: true when the venue has none" do
       stub = stub_request(:post, "#{BASE_URL}/payout_destinations")
              .with(body: { wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, address: destination[:address],
-                           confirm_details: true, no_minimum: true }.to_json)
+                           confirm_details: true, label: "Kraken", no_minimum: true }.to_json)
              .to_return(status: 201, body: destination.to_json, headers: json)
 
-      result = client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+      result = client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, label: "Kraken",
                                                  address: destination[:address], confirm_details: true,
                                                  no_minimum: true)
 
@@ -95,10 +95,10 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
     it "sends \"0\" as a figure like any other" do
       stub = stub_request(:post, "#{BASE_URL}/payout_destinations")
              .with(body: { wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, address: destination[:address],
-                           confirm_details: true, min_amount: "0" }.to_json)
+                           confirm_details: true, label: "Kraken", min_amount: "0" }.to_json)
              .to_return(status: 201, body: destination.to_json, headers: json)
 
-      client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+      client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, label: "Kraken",
                                         address: destination[:address], confirm_details: true, min_amount: "0")
 
       expect(stub).to have_been_requested
@@ -110,7 +110,7 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
                                         detail: "Send a minimum or no_minimum, not both." }.to_json, headers: json)
 
       expect do
-        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, label: "Kraken",
                                           address: destination[:address], confirm_details: true, min_amount: "1")
       end.to raise_error(Rail0::ApiError) { |e| expect(e.error).to eq("minimum_conflict") }
       expect(Rail0.describe_error("minimum_conflict")).to include("not both")
@@ -123,12 +123,37 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
                            confirm_details: true, label: "Kraken", min_amount: "5000000" }.to_json)
              .to_return(status: 201, body: destination.to_json, headers: json)
 
-      result = client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+      result = client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, label: "Kraken",
                                                  address: destination[:address], confirm_details: true,
-                                                 label: "Kraken", min_amount: "5000000")
+                                                 min_amount: "5000000")
 
       expect(stub).to have_been_requested
       expect(result[:status]).to eq("unverified")
+    end
+
+    it "requires a label and refuses a blank one before sending" do
+      base = { wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, address: destination[:address],
+               confirm_details: true, min_amount: "0" }
+      expect { client.payout_destinations.create(**base) }.to raise_error(ArgumentError, /label/)
+      [nil, "", "   "].each do |label|
+        expect { client.payout_destinations.create(**base, label: label) }
+          .to raise_error(ArgumentError, /label/), label.inspect
+      end
+      expect(a_request(:any, /payout_destinations/)).not_to have_been_made
+    end
+
+    it "surfaces payout_destination_label_taken and label_required with their hints" do
+      stub_request(:post, "#{BASE_URL}/payout_destinations")
+        .to_return(status: 409, body: { code: "payout_destination_label_taken", title: "Label already in use",
+                                        detail: "Another destination already has this label." }.to_json,
+                   headers: json)
+
+      expect do
+        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, label: "kraken",
+                                          address: destination[:address], confirm_details: true, min_amount: "0")
+      end.to raise_error(Rail0::ApiError) { |e| expect(e.error).to eq("payout_destination_label_taken") }
+      expect(Rail0.describe_error("payout_destination_label_taken")).to include("label")
+      expect(Rail0.describe_error("label_required")).to include("label")
     end
 
     it "surfaces confirmation_required with its hint" do
@@ -137,7 +162,7 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
                                         detail: "Confirm that you checked…" }.to_json, headers: json)
 
       expect do
-        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN,
+        client.payout_destinations.create(wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN, label: "Kraken",
                                           address: destination[:address], confirm_details: false,
                                           min_amount: "0")
       end.to raise_error(Rail0::ApiError) { |e| expect(e.error).to eq("confirmation_required") }
@@ -177,6 +202,21 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
                                                                  confirm_details: true)
       end.to raise_error(ArgumentError, /not both/)
       expect(a_request(:patch, path)).not_to have_been_made
+    end
+
+    it "renames with label, and refuses a blank one before sending" do
+      stub = stub_request(:patch, path)
+             .with(body: { label: "Kraken main" }.to_json)
+             .to_return(status: 200, body: destination.to_json, headers: json)
+
+      client.payout_destinations.update(PAYOUT_DESTINATION_ID, label: "Kraken main")
+      expect(stub).to have_been_requested
+
+      [nil, "", "  "].each do |label|
+        expect { client.payout_destinations.update(PAYOUT_DESTINATION_ID, label: label) }
+          .to raise_error(ArgumentError, /label/), label.inspect
+      end
+      expect(a_request(:patch, path)).to have_been_made.once
     end
 
     it "sends active: false" do
@@ -387,7 +427,8 @@ RSpec.describe "payout webhook topics and error hints" do
 
   it "hints every payout error code the gateway documents" do
     %w[confirmation_required minimum_required minimum_conflict payout_below_minimum payout_destination_unverified payout_destination_disabled
-       payout_destination_proof_missing payout_destination_exists payout_destination_zero_address
+       payout_destination_proof_missing payout_destination_exists payout_destination_label_taken
+       label_required payout_destination_zero_address
        payout_destination_own_wallet payout_destination_is_contract payout_already_signed payout_not_pending
        payout_not_signed payout_hash_in_use payout_limit_reached insufficient_balance account_deactivated
        foreign_transfer_hash transaction_mismatch invalid_amount invalid_transaction unknown_chain].each do |code|

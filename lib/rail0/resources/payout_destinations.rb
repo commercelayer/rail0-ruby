@@ -79,22 +79,29 @@ module Rail0
       # +minimum_required+ / +minimum_conflict+). Nothing is defaulted: a minimum nobody
       # looked up is how a deposit gets lost, so pass what the merchant answered.
       #
+      # +label+ is REQUIRED: the name the merchant knows the destination by. The gateway
+      # trims it; it must be unique among the account's live destinations, compared without
+      # regard to case (409 +payout_destination_label_taken+ otherwise; deleting a destination
+      # frees its label). A blank or whitespace-only label raises ArgumentError here and
+      # nothing is sent (the gateway would answer 422 +label_required+).
+      #
       # @param wallet_id [String] The wallet (uuid or address) that will sign transfers to it;
       #   must be the session's own.
       # @param chain_id [Integer] The chain the deposit address was issued for.
       # @param token [String] The token's address on that chain.
       # @param address [String] The deposit address, generated at the venue WITH THE NETWORK
       #   SET TO THIS CHAIN.
+      # @param label [String] The destination's name, unique per account (case-insensitive).
       # @param confirm_details [Boolean] The merchant's acceptance of {CONFIRM_DETAILS_TEXT}.
       # @param min_amount [String, nil] The venue's deposit minimum in base units. A payout
       #   below it is refused (+payout_below_minimum+) and the proof is raised to it.
       # @param no_minimum [Boolean] +true+: the merchant states the venue has no minimum.
-      # @param label [String, nil] A name for the destination.
       # @return [Hash] The destination.
-      # @raise [ArgumentError] when neither or both of +min_amount+ / +no_minimum: true+ are
-      #   given, or +min_amount+ is blank.
-      def create(wallet_id:, chain_id:, token:, address:, confirm_details:, min_amount: nil, no_minimum: false,
-                 label: nil)
+      # @raise [ArgumentError] when +label+ is blank, when neither or both of +min_amount+ /
+      #   +no_minimum: true+ are given, or +min_amount+ is blank.
+      def create(wallet_id:, chain_id:, token:, address:, label:, confirm_details:, min_amount: nil,
+                 no_minimum: false)
+        check_label!(label)
         figure = !min_amount.nil? && !min_amount.to_s.strip.empty?
         if figure == (no_minimum == true)
           raise ArgumentError, "exactly one of min_amount (the venue's minimum, base units) or no_minimum: true " \
@@ -117,6 +124,9 @@ module Rail0
       # Update a destination. Only the keywords you PASS are sent, and at least one is
       # required (ArgumentError otherwise).
       #
+      # - +label+: renames it. Never blank (ArgumentError here, 422 +label_required+ at the
+      #   gateway) and unique among the account's live destinations, case-insensitive (409
+      #   +payout_destination_label_taken+).
       # - +min_amount+: the venue's minimum, base units (+"0"+ is a figure like any other); it
       #   also clears +no_minimum+. Never blank: an empty string raises ArgumentError here.
       # - +no_minimum: true+: the venue has no minimum — how a minimum is removed (+min_amount+
@@ -139,13 +149,15 @@ module Rail0
           raise ArgumentError, "at least one of label, min_amount, no_minimum or active is required"
         end
 
+        check_label!(body[:label]) if body.key?(:label)
         check_minimum!(body)
 
         http.patch("/payout_destinations/#{segment(id)}", body)
       end
 
       # Delete a destination (soft): it leaves the lists ({list} shows it again with
-      # +include_deleted: true+) and its address is free to be registered again. The row is
+      # +include_deleted: true+), and its payment method and its label are free to be
+      # registered again. The row is
       # kept — its payouts and audit trail still name it, and {get} / {events} still read it
       # with +deleted_at+ set and +status+ "disabled". Its pending payout is settled first, as
       # on a switch-off: an unsigned one is cancelled, a signed one refuses the delete 409
@@ -197,6 +209,14 @@ module Rail0
       end
 
       private
+
+      # A destination's label is required and never blank (the gateway's +label_required+);
+      # refused here so nothing is sent.
+      def check_label!(label)
+        return unless label.to_s.strip.empty?
+
+        raise ArgumentError, "label is required and cannot be blank: name the destination"
+      end
 
       # {update}'s local minimum checks, before anything is sent: a blank +min_amount+ is
       # never a minimum (the gateway's +minimum_required+; +no_minimum: true+ removes one),

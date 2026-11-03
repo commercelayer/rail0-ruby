@@ -116,6 +116,8 @@ module Rail0
     # Payouts (gateway#455): the merchant's transfer of its balance to a payout destination.
     "confirmation_required" => "registering a payout destination, or changing its min_amount or no_minimum, needs confirm_details: true — the merchant's confirmation that they checked the address, network, token and minimum deposit at the venue (PayoutDestinations::CONFIRM_DETAILS_TEXT)",
     "payout_destination_exists" => "this payment method (token and chain) already has a destination — one per method; delete it to register another address (payout_destinations.list)",
+    "payout_destination_label_taken" => "another destination of this account already has this label (compared without regard to case) — pick another name, or delete that destination to free it (payout_destinations.list)",
+    "label_required" => "a payout destination needs a label — a name, not blank or whitespace (payout_destinations.create / update)",
     "payout_destination_zero_address" => "the zero address cannot receive a payout — register the venue's deposit address",
     "payout_destination_own_wallet" => "the destination is the paying wallet itself — register the deposit address of the exchange, Circle Mint account or another wallet you control",
     "payout_destination_is_contract" => "the address is a RAIL0 contract or a token contract on this chain, where funds cannot be recovered — register the venue's deposit address",

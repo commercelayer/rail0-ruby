@@ -673,11 +673,17 @@ no default: `true` is the merchant's acceptance of the gateway's `details_v1` te
 Show that text and pass the merchant's answer; anything but `true` is 422
 `confirmation_required` and nothing is saved.
 
+`label:` is required too: the name the merchant knows the destination by. The gateway trims
+it, and it must be unique among the account's live destinations, compared without regard to
+case (409 `payout_destination_label_taken`; deleting a destination frees its label). A blank
+or whitespace-only label raises `ArgumentError` before anything is sent (the gateway's 422
+`label_required`).
+
 ```ruby
 dest = client.payout_destinations.create(
   wallet_id: WALLET_ID,               # the session's own wallet (uuid or address)
   chain_id: 5042002, token: USDC, address: VENUE_DEPOSIT_ADDRESS,
-  label: "Kraken",
+  label: "Kraken",                    # required, unique per account (case-insensitive)
   min_amount: "5000000",              # the venue's minimum, base units (5 USDC) — or no_minimum: true
   confirm_details: merchant_accepted  # true only once the merchant accepted the text above
 )
@@ -790,9 +796,18 @@ A runnable end-to-end flow (register → proof → confirm → payout → poll) 
   client.payouts.prepare(destination_id: dest[:id], amount: "all", keep_gas_reserve: false)
   ```
 
+- **Rename**: `label:` renames it, under the same rules as on create: never blank
+  (`ArgumentError` here, 422 `label_required` at the gateway) and unique per account,
+  case-insensitive (409 `payout_destination_label_taken`):
+
+  ```ruby
+  client.payout_destinations.update(dest[:id], label: "Kraken main")
+  ```
+
 - **Disable and delete**: `active: false` disables a destination (`true` re-enables it with
-  the verification it had). `delete` removes it from the lists and frees its payment method:
-  one destination per token and chain, so another address can be registered there; the row is kept (`get` and `events` still read it, with `deleted_at` set
+  the verification it had). `delete` removes it from the lists and frees its payment method
+  (one destination per token and chain, so another address can be registered there) and its
+  label; the row is kept (`get` and `events` still read it, with `deleted_at` set
   and `status` `"disabled"`). Either settles a pending payout first: an unsigned one is
   cancelled, a signed one refuses with 409 `payout_already_signed`.
 
