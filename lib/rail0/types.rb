@@ -621,7 +621,6 @@ module Rail0
       :token_symbol,          # String | nil
       :address,               # String — The deposit address, lowercased.
       :label,                 # String | nil
-      :kind,                  # String
       :status,                # String
       :has_code,              # Boolean | nil — Whether the address held code on this chain when registered (eth_getCode, best effort). An EOA and an undeployed contract look the same.
       :min_amount,            # String | nil — The venue's deposit minimum, base units; null = no minimum. A payout below it is refused (`payout_below_minimum`); the proof transfer is raised to it.

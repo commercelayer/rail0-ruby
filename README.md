@@ -677,7 +677,7 @@ Show that text and pass the merchant's answer; anything but `true` is 422
 dest = client.payout_destinations.create(
   wallet_id: WALLET_ID,               # the session's own wallet (uuid or address)
   chain_id: 5042002, token: USDC, address: VENUE_DEPOSIT_ADDRESS,
-  label: "Kraken", kind: "exchange",  # exchange | circle_mint | self_custody | provider
+  label: "Kraken",
   min_amount: "5000000",              # the venue's minimum, base units (5 USDC) — or no_minimum: true
   confirm_details: merchant_accepted  # true only once the merchant accepted the text above
 )

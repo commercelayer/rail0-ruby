@@ -32,9 +32,6 @@ module Rail0
         "page and confirm they are correct. Funds sent to a wrong address or network, or below " \
         "the venue's minimum, may be permanently lost and cannot be recovered by rail0."
 
-      # The venue kinds a destination can be registered as.
-      KINDS = %w[exchange circle_mint self_custody provider].freeze
-
       # A destination's statuses — the values {list}'s +status+ filter accepts.
       STATUSES = %w[unverified verified disabled].freeze
 
@@ -93,12 +90,11 @@ module Rail0
       #   below it is refused (+payout_below_minimum+) and the proof is raised to it.
       # @param no_minimum [Boolean] +true+: the merchant states the venue has no minimum.
       # @param label [String, nil] A name for the destination.
-      # @param kind [String, nil] One of {KINDS}; the gateway defaults to "exchange".
       # @return [Hash] The destination.
       # @raise [ArgumentError] when neither or both of +min_amount+ / +no_minimum: true+ are
       #   given, or +min_amount+ is blank.
       def create(wallet_id:, chain_id:, token:, address:, confirm_details:, min_amount: nil, no_minimum: false,
-                 label: nil, kind: nil)
+                 label: nil)
         figure = !min_amount.nil? && !min_amount.to_s.strip.empty?
         if figure == (no_minimum == true)
           raise ArgumentError, "exactly one of min_amount (the venue's minimum, base units) or no_minimum: true " \
@@ -106,7 +102,7 @@ module Rail0
         end
 
         body = { wallet_id: wallet_id, chain_id: chain_id, token: token, address: address,
-                 confirm_details: confirm_details, label: label, kind: kind, min_amount: min_amount,
+                 confirm_details: confirm_details, label: label, min_amount: min_amount,
                  no_minimum: (true if no_minimum == true) }.compact
         http.post("/payout_destinations", body)
       end

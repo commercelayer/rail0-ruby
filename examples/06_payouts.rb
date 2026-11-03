@@ -55,7 +55,7 @@ end
 puts Rail0::Resources::PayoutDestinations::CONFIRM_DETAILS_TEXT
 dest = api.payout_destinations.create(
   wallet_id: WALLET_ID, chain_id: CHAIN_ID, token: TOKEN, address: DEPOSIT_ADDR,
-  label: "My exchange", kind: "exchange",
+  label: "My exchange",
   # Exactly one: the venue's figure, or the statement that it has none.
   **(VENUE_MINIMUM == "none" ? { no_minimum: true } : { min_amount: VENUE_MINIMUM }),
   confirm_details: true
