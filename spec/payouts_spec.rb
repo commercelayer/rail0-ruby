@@ -13,7 +13,7 @@ RSpec.describe Rail0::Resources::PayoutDestinations do
   let(:client) { Rail0::Client.new(base_url: BASE_URL, token: "jwt") }
   let(:json) { { "Content-Type" => "application/json" } }
   let(:destination) do
-    { id: PAYOUT_DESTINATION_ID, wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN.downcase,
+    { id: PAYOUT_DESTINATION_ID, wallet_id: WALLET_ID, chain_id: 84532, token: TOKEN.downcase, label: "Kraken",
       address: "0x9999999999999999999999999999999999999999", status: "unverified", min_amount: nil, no_minimum: true }
   end
 
