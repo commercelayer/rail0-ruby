@@ -2,10 +2,11 @@
 
 # Merchant payout: move the wallet's balance to a venue (exchange, Circle Mint, …)
 #
-#   merchant registers the deposit address   → POST /payout_destinations (confirm_details: true)
+#   merchant registers the deposit address   → POST /payout_destinations (min_amount or no_minimum, confirm_details: true)
 #   merchant sends the small proof transfer  → POST /payouts/prepare (purpose: proof) → sign → submit
 #   (poll) waits for the proof to confirm    → GET  /payouts/:id
 #   merchant confirms the venue credited it  → POST /payout_destinations/:id/confirm
+#   merchant checks what is kept back        → GET  /payout_destinations/:id/reserves
 #   merchant pays out                        → POST /payouts/prepare → verify → sign → submit
 #   (poll) waits for status "confirmed"      → GET  /payouts/:id
 #
@@ -21,7 +22,7 @@ WALLET_ID     = ENV.fetch("RAIL0_WALLET_ID")        # that wallet's uuid (or its
 CHAIN_ID      = Integer(ENV.fetch("RAIL0_CHAIN_ID", "5042002"))
 TOKEN         = ENV.fetch("RAIL0_TOKEN")            # the token's address on that chain
 DEPOSIT_ADDR  = ENV.fetch("VENUE_DEPOSIT_ADDRESS")  # generated at the venue FOR THIS NETWORK
-VENUE_MINIMUM = ENV.fetch("VENUE_MIN_AMOUNT", nil)  # the venue's minimum deposit, base units
+VENUE_MINIMUM = ENV.fetch("VENUE_MIN_AMOUNT")       # the venue's minimum deposit, base units; "none" if it has none
 AMOUNT        = ENV.fetch("PAYOUT_AMOUNT", "all")   # a human decimal, or "all"
 
 GATEWAY = "https://api.rail0.xyz"
@@ -54,7 +55,9 @@ end
 puts Rail0::Resources::PayoutDestinations::CONFIRM_DETAILS_TEXT
 dest = api.payout_destinations.create(
   wallet_id: WALLET_ID, chain_id: CHAIN_ID, token: TOKEN, address: DEPOSIT_ADDR,
-  label: "My exchange", kind: "exchange", min_amount: VENUE_MINIMUM,
+  label: "My exchange",
+  # Exactly one: the venue's figure, or the statement that it has none.
+  **(VENUE_MINIMUM == "none" ? { no_minimum: true } : { min_amount: VENUE_MINIMUM }),
   confirm_details: true
 )
 puts "Destination #{dest[:id]} — #{dest[:status]}"
@@ -72,6 +75,12 @@ dest = api.payout_destinations.confirm(dest[:id])
 puts "Destination #{dest[:id]} — #{dest[:status]}"
 
 # ── Step 4 — the payout: prepare → verify → sign → submit ─────────────────────────
+# What the payout keeps back (refund reserve, gas reserve on a native-gas chain) is
+# decided now; "all" moves `available`. keep_refund_reserve: false / keep_gas_reserve: false
+# on prepare opts out of one.
+reserves = api.payout_destinations.reserves(dest[:id])
+puts "Keeping back #{reserves[:refund_reserve_formatted]} (refunds) + #{reserves[:gas_reserve_formatted]} (gas); " \
+     "available #{reserves[:available_formatted]} #{reserves[:token_symbol]}"
 payout = api.payouts.prepare(destination_id: dest[:id], amount: AMOUNT)
 puts "Paying out #{payout[:amount_formatted]} #{payout[:token_symbol]}"
 # An explicit amount is also held to what was asked, scaled by the token's decimals.

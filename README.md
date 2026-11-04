@@ -652,13 +652,17 @@ client.payments.submit_by_hash(id, "capture", { transaction_hash: "0x…" })
 A payout moves the merchant wallet's balance to a **payout destination** — a deposit
 address at an exchange, Circle Mint, an off-ramp provider or your own custody. It is a
 plain ERC-20 `transfer(address,uint256)` from the wallet, signed by the destination's own
-wallet; rail0 never holds the key. Destination amounts (`reserve_amount`, `min_amount`)
-are **base-unit** strings; the `*_formatted` fields beside them carry the human decimals.
+wallet; rail0 never holds the key. Destination amounts (`min_amount`) are **base-unit**
+strings; the `*_formatted` fields beside them carry the human decimals.
 
 ### 1. Register a destination (with the confirmation)
 
 Generate the deposit address at the venue **with the network set to the payout's chain**,
-note the venue's minimum deposit, then register it. `confirm_details:` is required and has
+note the venue's minimum deposit, then register it. The minimum is required, as exactly one
+of `min_amount:` (the venue's figure in base units, from its deposit page) or
+`no_minimum: true` (the merchant states the venue has none). Neither, a blank figure, or both
+raise `ArgumentError` before anything is sent, and nothing is defaulted: a minimum nobody
+looked up is how a deposit gets lost. `confirm_details:` is required and has
 no default: `true` is the merchant's acceptance of the gateway's `details_v1` text
 (`Rail0::Resources::PayoutDestinations::CONFIRM_DETAILS_TEXT`), recorded with who and when:
 
@@ -669,17 +673,24 @@ no default: `true` is the merchant's acceptance of the gateway's `details_v1` te
 Show that text and pass the merchant's answer; anything but `true` is 422
 `confirmation_required` and nothing is saved.
 
+`label:` is required too: the name the merchant knows the destination by. The gateway trims
+it, and it must be unique among the account's live destinations, compared without regard to
+case (409 `payout_destination_label_taken`; deleting a destination frees its label). A blank
+or whitespace-only label raises `ArgumentError` before anything is sent (the gateway's 422
+`label_required`).
+
 ```ruby
 dest = client.payout_destinations.create(
   wallet_id: WALLET_ID,               # the session's own wallet (uuid or address)
   chain_id: 5042002, token: USDC, address: VENUE_DEPOSIT_ADDRESS,
-  label: "Kraken", kind: "exchange",  # exchange | circle_mint | self_custody | provider
-  min_amount: "5000000",              # the venue's minimum, base units (5 USDC); omit for none
+  label: "Kraken",                    # required, unique per account (case-insensitive)
+  min_amount: "5000000",              # the venue's minimum, base units (5 USDC) — or no_minimum: true
   confirm_details: merchant_accepted  # true only once the merchant accepted the text above
 )
 dest[:status]                         # => "unverified"
 
 client.payout_destinations.list(status: "verified")       # paged like payments
+client.payout_destinations.list(include_deleted: true)     # deleted ones too (deleted_at set)
 client.payout_destinations.get(dest[:id])
 client.payout_destinations.events(dest[:id])               # audit trail, newest first
 ```
@@ -699,7 +710,7 @@ client.payout_destinations.confirm(dest[:id])              # => status "verified
 
 ### 3. Pay out: prepare → verify → sign → submit
 
-`amount` is a **human decimal** or `"all"` (the balance minus the reserve, below). A payout
+`amount` is a **human decimal** or `"all"` (the balance minus what is kept back, below). A payout
 below the destination's `min_amount` is refused 422 `payout_below_minimum`.
 
 ```ruby
@@ -744,25 +755,65 @@ cancelled (409 `payout_already_signed`): `resend` it and let it settle.
 A runnable end-to-end flow (register → proof → confirm → payout → poll) is in
 [`examples/06_payouts.rb`](examples/06_payouts.rb).
 
-### Minimum and reserve
+### Minimum, reserves, disable and delete
 
 - **Minimum** (`min_amount`): the venue's minimum deposit. Below it the venue may never
-  credit a transfer, so the gateway refuses it. Changing it needs the same confirmation, and
-  raising it above the latest proof takes the verification away (prove it again):
+  credit a transfer, so the gateway refuses it. It is required and explicit: a figure
+  (`"0"` included), or `no_minimum: true` when the venue has none — the destination then
+  reads `no_minimum: true` with `min_amount` nil (`no_minimum: false` with a nil `min_amount`
+  is a destination registered before the minimum was asked: never stated). A blank figure,
+  or a figure beside `no_minimum: true`, raises `ArgumentError` (the gateway's
+  `minimum_required` / `minimum_conflict`). Changing either needs the same confirmation, and
+  raising the minimum above the latest proof takes the verification away (prove it again):
 
   ```ruby
   client.payout_destinations.update(dest[:id], min_amount: "10000000", confirm_details: merchant_accepted)
-  client.payout_destinations.update(dest[:id], min_amount: "", confirm_details: merchant_accepted)  # none
+  client.payout_destinations.update(dest[:id], no_minimum: true, confirm_details: merchant_accepted) # none
   ```
 
-- **Reserve** (`reserve_amount`): what an `"all"` payout leaves in the wallet so refunds can
-  still be paid. Unset, the gateway's suggestion applies (`suggested_reserve`: the refundable
-  balance of payments still inside their refund window).
+- **Reserves**: what a payout keeps back in the wallet is decided at payout time, not stored
+  on the destination. The **refund reserve** is the refundable balance of the wallet's
+  payments in this token still inside their refund window (a refund is pulled from the payee
+  wallet, so an emptied wallet fails it). The **gas reserve**, only on a chain whose gas is
+  paid in this very token (Arc's USDC, `native_gas`), is the gas for those refunds and for
+  capturing the open authorizations plus a base of new captures; `"0"` elsewhere. On such a
+  chain the payout's own fee (`gas_allowance`) is always kept back too. `reserves` shows the
+  figures right now, with `available`: what `"all"` moves with both reserves kept:
 
   ```ruby
-  client.payout_destinations.update(dest[:id], reserve_amount: "100000000")
-  client.payout_destinations.update(dest[:id], reserve_amount: "")   # back to the suggestion
-  client.payout_destinations.update(dest[:id], active: false)        # disable (true re-enables)
+  r = client.payout_destinations.reserves(dest[:id])
+  r[:refund_reserve_formatted]  # => "40.00"   (r[:refundable_payments] payments)
+  r[:gas_reserve_formatted]     # => "0.12"
+  r[:available_formatted]       # => "960.00"  what amount: "all" moves
+  ```
+
+  Both reserves are kept by default. A payout can opt out of either (a refund or capture after
+  it may then fail for lack of funds); the payout records what it kept back in
+  `refund_reserve` / `gas_reserve` (base units, nil for a proof):
+
+  ```ruby
+  client.payouts.prepare(destination_id: dest[:id], amount: "all", keep_refund_reserve: false)
+  client.payouts.prepare(destination_id: dest[:id], amount: "all", keep_gas_reserve: false)
+  ```
+
+- **Rename**: `label:` renames it, under the same rules as on create: never blank
+  (`ArgumentError` here, 422 `label_required` at the gateway) and unique per account,
+  case-insensitive (409 `payout_destination_label_taken`):
+
+  ```ruby
+  client.payout_destinations.update(dest[:id], label: "Kraken main")
+  ```
+
+- **Disable and delete**: `active: false` disables a destination (`true` re-enables it with
+  the verification it had). `delete` removes it from the lists and frees its payment method
+  (one destination per token and chain, so another address can be registered there) and its
+  label; the row is kept (`get` and `events` still read it, with `deleted_at` set
+  and `status` `"disabled"`). Either settles a pending payout first: an unsigned one is
+  cancelled, a signed one refuses with 409 `payout_already_signed`.
+
+  ```ruby
+  client.payout_destinations.update(dest[:id], active: false)  # disable (true re-enables)
+  client.payout_destinations.delete(dest[:id])                 # soft delete, own wallet only
   ```
 
 ## Webhooks (JWT)
@@ -1220,7 +1271,7 @@ lib/rail0/
     accounts.rb        the caller's own account profile, read and update (JWT)
     webhooks.rb        webhook subscription management (JWT)
     analytics.rb       account-scoped payment analytics (JWT)
-    payout_destinations.rb payout destinations: register, confirm, update (JWT)
+    payout_destinations.rb payout destinations: register, confirm, update, delete, reserves (JWT)
     payouts.rb         merchant payouts: prepare, sign, submit (JWT)
     query.rb           shared query-string and path-segment helpers
 ```

@@ -47,6 +47,20 @@ module Rail0
       :decimals,  # Integer
       :raw,       # String — Balance in base units (exact).
       :amount,    # String — Human-decimal balance.
+      :payout,    # What a payout in this token keeps back for gas — on every ERC-20 line; null on the native balance.
+      keyword_init: true
+    )
+
+    # The gas figures of a payout in this token on this chain: whether the chain's gas IS this very
+    # token (`native_gas`; Arc's USDC) and, then, the allowance POST /payouts/prepare keeps back from
+    # `all`, from a typed amount's ceiling and from the proof (`gas_allowance` = gas_limit ×
+    # max_fee_per_gas in base units, the charge the EVM takes before a transfer runs; `0` on any other
+    # chain). Null allowance when the fee could not be read. The reserves a payout keeps back are
+    # decided at payout time: GET /payout_destinations/{id}/reserves.
+    BalancePayout = Struct.new(
+      :native_gas,               # Boolean
+      :gas_allowance,            # String | nil
+      :gas_allowance_formatted,  # String | nil
       keyword_init: true
     )
 
@@ -600,27 +614,51 @@ module Rail0
     )
 
     PayoutDestination = Struct.new(
-      :id,                           # String
-      :wallet_id,                    # String
-      :chain_id,                     # Integer
-      :token,                        # String — ERC-20 address on that chain, lowercased.
-      :token_symbol,                 # String | nil
-      :address,                      # String — The deposit address, lowercased.
-      :label,                        # String | nil
-      :kind,                         # String
-      :status,                       # String
-      :has_code,                     # Boolean | nil — Whether the address held code on this chain when registered (eth_getCode, best effort). An EOA and an undeployed contract look the same.
-      :reserve_amount,               # String | nil — Base units kept in the wallet on a full-balance payout; null = the suggestion.
-      :reserve_amount_formatted,     # String | nil — `reserve_amount` in human decimals (the token's decimals); null while the suggestion applies, or when the token left the catalog.
-      :suggested_reserve,            # String — Base units: the refundable balance of the wallet's payments in this token still inside their refund window.
-      :suggested_reserve_formatted,  # String | nil — `suggested_reserve` in human decimals; null when the token left the catalog.
-      :min_amount,                   # String | nil — The venue's deposit minimum, base units; null = no minimum. A payout below it is refused (`payout_below_minimum`); the proof transfer is raised to it.
-      :min_amount_formatted,         # String | nil — `min_amount` in human decimals (the token's decimals); null when there is no minimum, or when the token left the catalog.
-      :proof_payout_id,              # String | nil
-      :verified_at,                  # String | nil
-      :disabled_at,                  # String | nil
-      :created_at,                   # String
-      :updated_at,                   # String
+      :id,                    # String
+      :wallet_id,             # String
+      :chain_id,              # Integer
+      :token,                 # String — ERC-20 address on that chain, lowercased.
+      :token_symbol,          # String | nil
+      :address,               # String — The deposit address, lowercased.
+      :label,                 # String — The merchant's name for it: never blank, unique (case-insensitive) among the account's live destinations.
+      :status,                # String
+      :has_code,              # Boolean | nil — Whether the address held code on this chain when registered (eth_getCode, best effort). An EOA and an undeployed contract look the same.
+      :min_amount,            # String | nil — The venue's deposit minimum, base units; null = no minimum. A payout below it is refused (`payout_below_minimum`); the proof transfer is raised to it.
+      :no_minimum,            # Boolean — true when the merchant stated the venue has no minimum deposit (`min_amount` is then null). false with a null `min_amount`: never stated (a destination registered before it was asked).
+      :min_amount_formatted,  # String | nil — `min_amount` in human decimals (the token's decimals); null when there is no minimum, or when the token left the catalog.
+      :proof_payout_id,       # String | nil
+      :verified_at,           # String | nil
+      :disabled_at,           # String | nil
+      :deleted_at,            # String | nil — When the merchant deleted it (DELETE /payout_destinations/{id}); null for a live destination.
+      :created_at,            # String
+      :updated_at,            # String
+      keyword_init: true
+    )
+
+    # What a payout to the destination would keep back right now (GET
+    # /payout_destinations/{id}/reserves). Every amount is base units as a string, with its
+    # human-decimals twin (`*_formatted`, the token's decimals).
+    PayoutReserves = Struct.new(
+      :destination_id,            # String
+      :chain_id,                  # Integer
+      :token,                     # String — ERC-20 address on that chain, lowercased.
+      :token_symbol,              # String
+      :decimals,                  # Integer
+      :balance,                   # String — The wallet's balance of the token, read now.
+      :balance_formatted,         # String
+      :refund_reserve,            # String — The refundable balance of the wallet's payments in this token still inside their refund window.
+      :refund_reserve_formatted,  # String
+      :refundable_payments,       # Integer — How many payments `refund_reserve` covers: the refunds the wallet may still owe.
+      :native_gas,                # Boolean — Whether the chain's gas is paid in this very token (Arc's USDC). The gas figures are `0` when it is not.
+      :gas_reserve,               # String — Gas for `gas_refunds` refunds and for `open_authorizations` + `base_captures` captures, at their gas limits and the fee ceiling a prepare would set now; `0` off a native-gas chain. Counted over every token of the chain: on Arc a EURC payment's capture or refund is paid in USDC gas too.
+      :gas_reserve_formatted,     # String
+      :gas_refunds,               # Integer — The wallet's payments on this chain, in any token, still inside their refund window with something left to refund: the refunds the gas reserve pays for.
+      :open_authorizations,       # Integer — The wallet's payments on this chain, in any token, still capturable (a capture's gas is the merchant wallet's).
+      :base_captures,             # Integer — Captures the gas reserve pays for on top of the open authorizations, so the wallet can capture the payments it takes next.
+      :gas_allowance,             # String — The payout transfer's own fee (gas_limit × max_fee_per_gas), always kept back on a native-gas chain; `0` elsewhere.
+      :gas_allowance_formatted,   # String
+      :available,                 # String — balance − refund_reserve − gas_reserve − gas_allowance, floored at 0: what `amount: all` moves with both reserves kept (the default).
+      :available_formatted,       # String
       keyword_init: true
     )
 
@@ -634,13 +672,16 @@ module Rail0
       :address,               # String — The recipient.
       :amount,                # String — Base units.
       :amount_formatted,      # String — Human decimals.
+      :refund_reserve,        # String | nil — Base units this payout kept back in the wallet for refunds, decided at prepare; `0` when the merchant opted out (`keep_refund_reserve: false`); null for a proof.
+      :gas_reserve,           # String | nil — Base units this payout kept back for the gas the wallet still owes (native-gas chains only, `0` elsewhere or when opted out with `keep_gas_reserve: false`); null for a proof.
       :purpose,               # String
-      :status,                # String
+      :status,                # String — `pending` (prepared, awaiting the signature) → `submitted` (hash known; still `submitted` once mined, until its block is final) → `confirmed` | `failed`. Both outcomes are decided only once the receipt's block is at or below the chain's finality bound (its `finality_tag` block, or head − `required_confirmations` for `depth` or a node that serves no tag) and still canonical; `payouts.confirmed` / `payouts.failed` fire then.
       :unsigned_transaction,  # String | nil — JSON of the EIP-1559 transaction to sign (`to` = the token, `data` = transfer(address,uint256)). Check it against the decoded fields beside it before signing.
       :signed,                # Boolean — Whether the gateway stores the wallet's signed transaction (the payload itself is never exposed). A `pending` payout with `signed: true` already has its `transaction_hash` and may be in a mempool: resend it (POST /payouts/{id}/resend); it cannot be re-prepared.
       :transaction_hash,      # String | nil — Keccak of the signed transaction, stored with it on submit (so a signed `pending` row has it too), or the hash the wallet reported.
       :sender,                # String | nil
-      :block_number,          # Integer | nil
+      :block_number,          # Integer | nil — The receipt's block. Set when the gateway first sees the receipt (the payout stays `submitted` until that block is final) moved to the new block if a reorg re-includes the transaction elsewhere, and cleared only while no block holds it.
+      :mined_at,              # String | nil — When the gateway first saw the receipt (its own clock, not the block's timestamp). Non-null on a `submitted` payout: mined, waiting for finality.
       :gas_used,              # String | nil
       :error_code,            # String | nil — When failed: `reverted` (mined, status 0), `foreign_transfer` (mined, but the receipt has no Transfer of this amount of this token from the wallet to this destination), `dropped` (not mined, and the wallet's confirmed nonce has passed the signed transaction's), `submission_timeout` (a reported hash no node has ever known, past SUBMITTED_TX_TTL), `cancelled` (unsigned, cancelled by the merchant with POST /payouts/{id}/cancel or by disabling its destination). `submission_timeout` and `dropped` are not final: POST /payouts/{id}/submitted with a late hash puts the payout back to `submitted`.
       :error_title,           # String | nil
