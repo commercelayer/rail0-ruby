@@ -303,7 +303,7 @@ jobs:
               "type": "section",
               "text": {
                 "type": "mrkdwn",
-                "text": ":ruby: New release for <https://rubygems.org/gems/rail0-sdk/versions/${{ needs.plan.outputs.version }}|rail0 SDK for Ruby>\n<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.plan.outputs.tag }}|release notes>"
+                "text": ":ruby: New release for <https://rubygems.org/gems/rail0-sdk/versions/${{ needs.plan.outputs.version }}|rail0 SDK for Ruby>\n*<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.plan.outputs.tag }}|release notes>*"
               }
               },
               {
