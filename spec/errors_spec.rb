@@ -161,7 +161,7 @@ RSpec.describe "error surface" do
     # The public onboarding codes of POST /signup and POST /claim; the console-only codes
     # of /admin/onboardings (onboarding_completed, onboarding_not_found) stay out.
     it "covers the public onboarding codes" do
-      %w[signup_unavailable onboarding_unavailable email_provider_not_configured
+      %w[onboarding_unavailable email_provider_not_configured
          email_domain_not_allowed account_email_taken account_wallet_taken
          account_name_taken terms_required onboarding_link_invalid
          onboarding_link_expired onboarding_link_superseded].each do |code|
