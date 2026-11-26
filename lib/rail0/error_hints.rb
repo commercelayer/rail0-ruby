@@ -19,7 +19,8 @@ module Rail0
     "not_disputed" => "there is no open dispute to close",
     "nothing_to_dispute" => "a dispute needs a merchant-held (refundable) balance",
     "unknown_dispute_reason" => "reason must be a dispute-reason code (Rail0::DisputeReasons.codes(:open) / codes(:close)) or exactly its bytes32 — full_refund is system-only",
-    "transaction_not_overwritable" => "a transaction for this operation is already in flight — wait for it to settle",
+    "transaction_not_overwritable" => "this operation's transaction is already confirmed — its hash cannot be replaced (a failed one can: report the hash again)",
+    "transaction_in_flight" => "the other party already has this operation's transaction signed or sent, and this session cannot replace it — wait a moment and prepare the operation again to get a transaction of your own",
     "signer_mismatch" => "the signature recovers to a different wallet than the one that must sign — the payment's payer/payee, or at POST /claim the wallet the onboarding request names",
     # The SIWE BINDING failures, split out of signer_mismatch so a failed login says
     # WHICH part of the proof did not bind (#216). None names the server's own
@@ -87,7 +88,7 @@ module Rail0
     # Ported from rail0-go / rail0-ts, which carried these five and this table did not.
     "validation_failed" => "a parameter is invalid — the error detail names the offending field",
     "invalid_sort" => "that field cannot be sorted on — the error detail names the allowed set",
-    "rate_limited" => "rate limit reached — wait for Retry-After (the time left in the window) and retry",
+    "rate_limited" => "too many requests, or too many of this payment's transactions still waiting to be confirmed — wait the Retry-After seconds and retry",
     "event_not_found" => "the reported transaction mined but did not perform this operation on this payment — nothing moved; check the hash and prepare the operation again",
     "submission_timeout" => "the transaction was not mined in time and was recorded as failed — if it mines later, re-report its hash via the operation's submitted endpoint",
     # From the gateway's error catalog (lib/rail0/error_catalog.rb).

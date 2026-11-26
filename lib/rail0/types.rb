@@ -530,7 +530,7 @@ module Rail0
       :webhooks,      # Hash
       :settlement,    # Hash
       :rate_limit,    # Hash
-      :siwe,          # Hash — domains (SIWE_DOMAIN), accepted_chain_ids (1 plus the ids of the active catalog chains: the chainId values a login may carry) and nonce_ttl.
+      :siwe,          # Hash — domains (SIWE_DOMAIN), accepted_chain_ids (1 plus the ids of the catalog's chains, active or not: the chainId values a login may carry) and nonce_ttl.
       :session,       # Hash — environment (RAIL0_ENVIRONMENT, default RACK_ENV: the scope every issued token is bound to), jwt_ttl and jwt_audience: the session token's lifetime (a constant) and audience (`rail0-gateway:<environment>`).
       :fees,          # Hash
       :rpc,           # Hash
